@@ -6,13 +6,13 @@
 
 ```
 .
-├── src/
-│   ├── app.py              # FastAPI 애플리케이션 메인
-│   ├── pose_estimation.py  # 포즈 추정 모듈
-│   ├── swing_analyzer.py   # 스윙 분석 모듈
-│   └── video_processor.py  # 비디오 처리 모듈
-├── requirements.txt        # 의존성 패키지
-└── README.md              # 프로젝트 문서
+├── demo/               # 데모 파일 디렉토리
+├── logs/              # 로그 파일 디렉토리
+├── cache/             # 캐시 파일 디렉토리
+├── ref/               # 참조 파일 디렉토리
+├── requirements.txt   # 의존성 패키지
+├── LICENSE           # 라이센스 파일
+└── README.md         # 프로젝트 문서
 ```
 
 ## 설치 방법
@@ -32,48 +32,48 @@ source venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 ```
 
+## 주요 의존성 패키지
+
+- mediapipe==0.10.21: 포즈 추정을 위한 라이브러리
+- opencv-python==4.9.0.80: 이미지/비디오 처리
+- numpy==1.26.4: 수치 연산
+- streamlit==1.32.2: 웹 인터페이스
+- matplotlib==3.8.3: 데이터 시각화
+- pillow==10.2.0: 이미지 처리
+- python-multipart==0.0.9: 파일 업로드 처리
+- python-dotenv==1.0.1: 환경 변수 관리
+
 ## 실행 방법
 
-1. 서버 실행:
+1. 환경 변수 설정:
+   - `.env` 파일을 프로젝트 루트에 생성하고 필요한 환경 변수를 설정합니다.
+
+2. 서버 실행:
 ```bash
-cd src
-uvicorn app:app --reload
-#uvicorn src.main:app --reload --log-level debug
+streamlit run app.py
 ```
 
-2. API 문서 확인:
-- http://localhost:8000/docs
-
-## API 엔드포인트
+## 기능
 
 ### 1. 비디오 업로드
-- **엔드포인트**: `/api/video/upload`
-- **메소드**: POST
-- **입력**: 비디오 파일 (mp4, avi, mov)
-- **출력**: 
-  ```json
-  {
-    "message": "비디오가 성공적으로 업로드되었습니다.",
-    "file_path": "임시_파일_경로",
-    "video_id": "고유_비디오_ID"
-  }
-  ```
+- 골프 스윙 비디오 파일 업로드 (지원 형식: mp4, avi, mov)
+- 자동 포맷 검증 및 처리
 
-### 2. 비디오 분석
-- **엔드포인트**: `/api/analysis/analysis/{video_id}`
-- **메소드**: GET
-- **입력**: 비디오 ID (URL 파라미터)
-- **출력**: 
-  ```json
-  {
-    "message": "분석이 완료되었습니다.",
-    "frames": [...],  // 프레임별 분석 데이터
-    "metrics": {...}  // 스윙 메트릭스
-  }
-  ```
+### 2. 스윙 분석
+- 실시간 포즈 추정
+- 주요 관절 각도 분석
+- 스윙 궤적 시각화
+- 프레임별 상세 분석 데이터 제공
 
-### 3. 비디오 스트리밍
-- **엔드포인트**: `/api/video/{video_id}`
-- **메소드**: GET
-- **입력**: 비디오 ID (URL 파라미터)
-- **출력**: 비디오 파일 스트림 (video/mp4) 
+### 3. 결과 시각화
+- 스윙 궤적 3D 렌더링
+- 주요 지표 그래프 표시
+- 프레임별 포즈 추정 결과 표시
+
+## 라이센스
+
+이 프로젝트는 LICENSE 파일에 명시된 라이센스 조건에 따라 배포됩니다.
+
+## 문의사항
+
+버그 리포트나 기능 개선 제안은 GitHub Issues를 통해 제출해 주시기 바랍니다. 
