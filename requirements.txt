@@ -1,7 +1,6 @@
 python-multipart==0.0.9
 python-jose==3.3.0
 python-dotenv==1.0.1
-streamlit==1.32.2
 matplotlib==3.8.3
 pillow==10.2.0
 rich>=10.14.0
