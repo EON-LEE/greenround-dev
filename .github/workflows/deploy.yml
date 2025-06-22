@@ -42,15 +42,15 @@ jobs:
         CLIENT_EMAIL=$(cat gcs-credentials.json | python3 -c "import sys, json; print(json.load(sys.stdin)['client_email'])")
         echo "📧 서비스 계정: $CLIENT_EMAIL"
         
-                 # 환경 변수로 설정 (다음 스텝에서 사용)
-         echo "GCP_PROJECT_ID=$GCP_PROJECT_ID" >> $GITHUB_ENV
-         echo "CLIENT_EMAIL=$CLIENT_EMAIL" >> $GITHUB_ENV
-         echo "GCP_REGION=${{ env.GCP_REGION }}" >> $GITHUB_ENV
-         echo "GCP_SERVICE_NAME=${{ env.GCP_SERVICE_NAME }}" >> $GITHUB_ENV
-         echo "GCP_REPOSITORY=${{ env.GCP_REPOSITORY }}" >> $GITHUB_ENV
-         echo "GCP_USE_GPU=${{ env.GCP_USE_GPU }}" >> $GITHUB_ENV
-         echo "GCP_GPU_TYPE=${{ env.GCP_GPU_TYPE }}" >> $GITHUB_ENV
-         echo "GCP_GPU_COUNT=${{ env.GCP_GPU_COUNT }}" >> $GITHUB_ENV
+        # 환경 변수로 설정 (다음 스텝에서 사용)
+        echo "GCP_PROJECT_ID=$GCP_PROJECT_ID" >> $GITHUB_ENV
+        echo "CLIENT_EMAIL=$CLIENT_EMAIL" >> $GITHUB_ENV
+        echo "GCP_REGION=${{ env.GCP_REGION }}" >> $GITHUB_ENV
+        echo "GCP_SERVICE_NAME=${{ env.GCP_SERVICE_NAME }}" >> $GITHUB_ENV
+        echo "GCP_REPOSITORY=${{ env.GCP_REPOSITORY }}" >> $GITHUB_ENV
+        echo "GCP_USE_GPU=${{ env.GCP_USE_GPU }}" >> $GITHUB_ENV
+        echo "GCP_GPU_TYPE=${{ env.GCP_GPU_TYPE }}" >> $GITHUB_ENV
+        echo "GCP_GPU_COUNT=${{ env.GCP_GPU_COUNT }}" >> $GITHUB_ENV
         
         echo "✅ 인증 정보 파싱 완료"
     
@@ -117,10 +117,151 @@ jobs:
     - name: 🎉 Display deployment results
       if: github.ref == 'refs/heads/main'
       run: |
-                 echo "🎯 배포 결과 조회 중..."
-         SERVICE_URL=$(gcloud run services describe ${GCP_SERVICE_NAME} \
-           --region=${GCP_REGION} \
-           --format='value(status.url)')
+        echo "🎯 배포 결과 조회 중..."
+        SERVICE_URL=$(gcloud run services describe ${GCP_SERVICE_NAME} \
+          --region=${GCP_REGION} \
+          --format='value(status.url)')
+        
+        echo "=================================================="
+        echo "🚀 배포 완료!"
+        echo "📍 서비스 URL: $SERVICE_URL"
+        echo "📚 API 문서: $SERVICE_URL/docs"
+        echo "🏥 헬스체크: $SERVICE_URL/api/health"
+        echo "=================================================="
+        
+        # GitHub Actions 알림
+        echo "::notice title=🎉 배포 성공::서비스가 성공적으로 배포되었습니다: $SERVICE_URL"
+        
+        # API 응답 테스트
+        echo "🧪 API 응답 테스트 중..."
+        if curl -s --max-time 10 "$SERVICE_URL/api/health" > /dev/null; then
+          echo "✅ API 서비스가 정상적으로 응답합니다."
+          echo "::notice title=✅ API 테스트::API 서비스가 정상 작동 중입니다"
+        else
+          echo "⚠️ API 서비스 응답을 확인할 수 없습니다."
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # 수동 실행 가능
+
+env:
+  GCP_REGION: asia-northeast3
+  GCP_SERVICE_NAME: greenround-backend
+  GCP_REPOSITORY: greenround
+  GCP_USE_GPU: true
+  GCP_GPU_TYPE: nvidia-l4
+  GCP_GPU_COUNT: 1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 1. 코드 체크아웃
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+    
+    # 2. GCP 서비스 계정 파일 파싱 및 인증
+    - name: 🔍 Parse GCP credentials and extract project ID
+      run: |
+        if [ ! -f "gcs-credentials.json" ]; then
+          echo "❌ ERROR: gcs-credentials.json 파일을 찾을 수 없습니다!"
+          exit 1
+        fi
+        
+        echo "📋 GCP 인증 정보 파싱 중..."
+        
+        # JSON에서 project_id 추출
+        GCP_PROJECT_ID=$(cat gcs-credentials.json | python3 -c "import sys, json; print(json.load(sys.stdin)['project_id'])")
+        echo "🎯 프로젝트 ID: $GCP_PROJECT_ID"
+        
+        # JSON에서 client_email 추출 (확인용)
+        CLIENT_EMAIL=$(cat gcs-credentials.json | python3 -c "import sys, json; print(json.load(sys.stdin)['client_email'])")
+        echo "📧 서비스 계정: $CLIENT_EMAIL"
+        
+        # 환경 변수로 설정 (다음 스텝에서 사용)
+        echo "GCP_PROJECT_ID=$GCP_PROJECT_ID" >> $GITHUB_ENV
+        echo "CLIENT_EMAIL=$CLIENT_EMAIL" >> $GITHUB_ENV
+        echo "GCP_REGION=${{ env.GCP_REGION }}" >> $GITHUB_ENV
+        echo "GCP_SERVICE_NAME=${{ env.GCP_SERVICE_NAME }}" >> $GITHUB_ENV
+        echo "GCP_REPOSITORY=${{ env.GCP_REPOSITORY }}" >> $GITHUB_ENV
+        echo "GCP_USE_GPU=${{ env.GCP_USE_GPU }}" >> $GITHUB_ENV
+        echo "GCP_GPU_TYPE=${{ env.GCP_GPU_TYPE }}" >> $GITHUB_ENV
+        echo "GCP_GPU_COUNT=${{ env.GCP_GPU_COUNT }}" >> $GITHUB_ENV
+        
+        echo "✅ 인증 정보 파싱 완료"
+    
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ github.workspace }}/gcs-credentials.json
+    
+    # 3. Cloud SDK 설치
+    - name: ☁️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        version: 'latest'
+    
+    # 4. Docker Buildx 설정
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    # 5. 환경 변수를 .env 파일로 생성
+    - name: 📝 Create .env file
+      run: |
+        echo "🔧 환경 변수 파일 생성 중..."
+        cat > .env << EOF
+        GCP_PROJECT_ID=${GCP_PROJECT_ID}
+        GCP_REGION=${GCP_REGION}
+        GCP_SERVICE_NAME=${GCP_SERVICE_NAME}
+        GCP_REPOSITORY=${GCP_REPOSITORY}
+        GCP_USE_GPU=${GCP_USE_GPU}
+        GCP_GPU_TYPE=${GCP_GPU_TYPE}
+        GCP_GPU_COUNT=${GCP_GPU_COUNT}
+        EOF
+        echo "✅ 생성된 .env 파일:"
+        cat .env
+    
+    # 6. 배포 스크립트 실행 권한 부여
+    - name: 🔑 Make deploy script executable
+      run: chmod +x ./deploy_to_gcp.sh
+    
+    # 7. 초기 설정 (API 활성화, 저장소 생성)
+    - name: ⚙️ Run initial setup
+      run: |
+        echo "🚀 GCP 초기 설정 실행 중..."
+        ./deploy_to_gcp.sh --setup
+    
+    # 8. 배포 실행 (브랜치별 분기)
+    - name: 🚀 Deploy to Cloud Run
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "📝 PR 빌드: 이미지 빌드만 수행"
+          ./deploy_to_gcp.sh --build-only
+        else
+          echo "🌟 메인/개발 브랜치: 전체 배포 수행"
+          ./deploy_to_gcp.sh
+        fi
+    
+    # 9. 배포 결과 확인 (메인 브랜치만)
+    - name: ✅ Check deployment status
+      if: github.ref == 'refs/heads/main'
+      run: |
+        echo "🔍 배포 상태 확인 중..."
+        ./deploy_to_gcp.sh --status
+    
+    # 10. 배포 URL 및 결과 출력
+    - name: 🎉 Display deployment results
+      if: github.ref == 'refs/heads/main'
+      run: |
+        echo "🎯 배포 결과 조회 중..."
+        SERVICE_URL=$(gcloud run services describe ${GCP_SERVICE_NAME} \
+          --region=${GCP_REGION} \
+          --format='value(status.url)')
         
         echo "=================================================="
         echo "🚀 배포 완료!"
