@@ -297,6 +297,8 @@ show_logs() {
 # 초기 설정 수행
 initial_setup() {
     log_info "초기 설정을 시작합니다..."
+    load_env_file
+    set_environment_variables
     check_requirements
     check_auth
     enable_apis
