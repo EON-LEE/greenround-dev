@@ -3,7 +3,7 @@ import logging
 import logging.handlers
 import os
 import tempfile
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 import uuid
 import io
 import time
@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 import plotly.graph_objects as go
+import streamlit as st
 
 # Streamlit 페이지 설정
 st.set_page_config(
@@ -151,115 +152,60 @@ def analyze_swing(video_path: str, models: Tuple) -> Optional[Dict]:
         
         progress_bar = st.progress(0)
         status_text = st.empty()
+        status_text.text("비디오 분석 중...")
         
-        frames_data = []
-        frame_angles = []
-        frame_count = 0
+        # SwingAnalyzer의 analyze_video 메서드 사용 (세분화된 포즈 분석 포함)
+        result = swing_analyzer.analyze_video(video_path)
         
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            st.error("비디오 파일을 열 수 없습니다.")
-            return None
-            
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if total_frames == 0:
-            st.error("비디오 파일이 비어있습니다.")
+        if not result:
+            st.error("비디오 분석에 실패했습니다.")
             return None
         
-        # 프레임 처리
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-                
-            try:
-                processed_frame, landmarks = pose_estimator.process_frame(frame)
-                if landmarks:
-                    angles = pose_estimator.calculate_angles(landmarks)
-                    frame_angles.append(angles)
-                    
-                    # landmarks를 딕셔너리로 변환
-                    landmarks_data = {
-                        'left_shoulder': landmarks.left_shoulder.tolist(),
-                        'right_shoulder': landmarks.right_shoulder.tolist(),
-                        'left_elbow': landmarks.left_elbow.tolist(),
-                        'right_elbow': landmarks.right_elbow.tolist(),
-                        'left_wrist': landmarks.left_wrist.tolist(),
-                        'right_wrist': landmarks.right_wrist.tolist(),
-                        'left_hip': landmarks.left_hip.tolist(),
-                        'right_hip': landmarks.right_hip.tolist(),
-                        'left_knee': landmarks.left_knee.tolist(),
-                        'right_knee': landmarks.right_knee.tolist(),
-                        'left_ankle': landmarks.left_ankle.tolist(),
-                        'right_ankle': landmarks.right_ankle.tolist(),
-                        'nose': landmarks.nose.tolist() if hasattr(landmarks, 'nose') else [0, 0, 0]
-                    }
-                    
-                    frames_data.append({
-                        'angles': angles,
-                        'landmarks': landmarks_data
-                    })
-                    
-                    logger.debug(f"프레임 {frame_count} 처리 완료: {len(landmarks_data)} 랜드마크, {len(angles)} 각도")
-            except Exception as frame_error:
-                logger.error(f"프레임 {frame_count} 처리 중 오류: {str(frame_error)}")
-                continue
-                    
-            frame_count += 1
-            progress = int((frame_count / total_frames) * 100)
-            progress_bar.progress(progress)
-            status_text.text(f"프레임 처리 중... {progress}%")
-                
-        cap.release()
+        progress_bar.progress(50)
+        status_text.text("시퀀스 이미지 생성 중...")
+        
+        # 연속 겹침 시퀀스 생성
+        try:
+            continuous_path = os.path.join(TEMP_DIR, "continuous_overlap_sequence.jpg")
+            continuous_overlap_path = create_swing_sequence_local(
+                video_path, 
+                result['key_frames'], 
+                continuous_path,
+                overlap_mode="continuous"
+            )
+            if continuous_overlap_path:
+                st.session_state.continuous_sequence_path = continuous_overlap_path
+                logger.info(f"연속 겹침 시퀀스 생성 완료: {continuous_overlap_path}")
+        except Exception as e:
+            logger.warning(f"연속 겹침 시퀀스 생성 실패: {e}")
+            st.session_state.continuous_sequence_path = None
+        
+        progress_bar.progress(100)
+        status_text.text("분석 완료!")
+        
+        # UI 정리
         progress_bar.empty()
         status_text.empty()
-
-        if not frames_data:
-            st.error("비디오에서 유효한 프레임을 찾을 수 없습니다.")
-            return None
-
-        logger.info(f"분석 완료: {len(frames_data)} 프레임 처리됨")
         
-        # 키 프레임 설정 - 0-based 인덱스 사용
-        total_valid_frames = len(frames_data)
-        key_frames = {
-            'address': 0,  # 첫 번째 유효한 프레임을 어드레스로 설정
-            'backswing': min(int(total_valid_frames * 0.3), total_valid_frames - 1),
-            'top': min(int(total_valid_frames * 0.5), total_valid_frames - 1),
-            'impact': min(int(total_valid_frames * 0.7), total_valid_frames - 1),
-            'follow_through': min(int(total_valid_frames * 0.85), total_valid_frames - 1),
-            'finish': total_valid_frames - 1  # 마지막 유효한 프레임
+        logger.info(f"분석 완료: {len(result.get('frames_data', []))} 프레임 처리됨")
+        logger.info(f"감지된 키 프레임: {result.get('key_frames', {})}")
+        
+        return {
+            "message": "분석이 완료되었습니다.",
+            "frames": result.get('frames_data', []),
+            "frames_data": result.get('frames_data', []),
+            "metrics": result.get('metrics', {}),
+            "key_frames": result.get('key_frames', {}),
+            "evaluations": result.get('evaluations', {})
         }
-        
-        logger.debug(f"Key frames before metrics calculation: {key_frames}")
-        
-        # 메트릭스 계산
-        try:
-            metrics = swing_analyzer._calculate_metrics(frames_data, key_frames)
-            logger.debug(f"Calculated metrics: {metrics}")
-            
-            # 스윙 평가 수행
-            evaluations = swing_analyzer._evaluate_swing(frames_data, key_frames, metrics)
-            logger.debug(f"Generated evaluations: {evaluations}")
-            
-            return {
-                "message": "분석이 완료되었습니다.",
-                "frames": frames_data,
-                "metrics": metrics,
-                "key_frames": key_frames,
-                "evaluations": evaluations
-            }
-        except Exception as e:
-            logger.error(f"Error in analyze_swing: {str(e)}", exc_info=True)
-            st.error(f"분석 중 오류가 발생했습니다: {str(e)}")
-            return None
     except Exception as e:
         logger.error(f"Error in analyze_swing: {str(e)}", exc_info=True)
         st.error(f"분석 중 오류가 발생했습니다: {str(e)}")
         return None
 
-def create_sequence_image(video_path: str, key_frames: Dict[str, int]) -> Optional[np.ndarray]:
-    """스윙 시퀀스 이미지 생성"""
+def create_sequence_image(video_path: str, key_frames: Dict[str, int], overlap_mode: bool = False, 
+                         analysis_frames: List[Dict] = None) -> Optional[np.ndarray]:
+    """스윙 시퀀스 이미지 생성 (오버랩 모드 지원 + 사람 영역 자동 크롭)"""
     try:
         if not os.path.exists(video_path):
             st.error("비디오 파일을 찾을 수 없습니다.")
@@ -271,7 +217,7 @@ def create_sequence_image(video_path: str, key_frames: Dict[str, int]) -> Option
             return None
             
         frames = []
-        frame_order = ['address', 'backswing', 'impact', 'follow_through', 'finish']
+        frame_order = ['address', 'backswing', 'top', 'impact', 'follow_through']
         
         for phase in frame_order:
             frame_idx = key_frames.get(phase)
@@ -279,30 +225,220 @@ def create_sequence_image(video_path: str, key_frames: Dict[str, int]) -> Option
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
                 ret, frame = cap.read()
                 if ret:
-                    cv2.putText(frame, phase.upper(), (10, 30), 
-                              cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    frames.append(frame)
+                    # 사람 영역 자동 크롭 (랜드마크 데이터가 있는 경우)
+                    if analysis_frames and frame_idx < len(analysis_frames):
+                        landmarks_data = analysis_frames[frame_idx]['landmarks']
+                        frame = auto_crop_person_area(frame, landmarks_data)
+                    
+                    # 프레임 크기 조정
+                    height, width = frame.shape[:2]
+                    if width > 800:  # 너무 크면 리사이즈
+                        scale = 800 / width
+                        new_width = int(width * scale)
+                        new_height = int(height * scale)
+                        frame = cv2.resize(frame, (new_width, new_height))
+                    
+                    frames.append((phase, frame))
         
         cap.release()
         
         if not frames:
             st.error("시퀀스 이미지를 생성할 프레임이 없습니다.")
             return None
-            
-        target_height = 480
-        processed_frames = []
-        for frame in frames:
-            h, w = frame.shape[:2]
-            aspect = w / h
-            target_width = int(target_height * aspect)
-            processed_frames.append(cv2.resize(frame, (target_width, target_height)))
-            
-        return np.hstack(processed_frames)
+        
+        if overlap_mode:
+            return create_overlapped_sequence(frames)
+        else:
+            return create_side_by_side_sequence(frames)
         
     except Exception as e:
         logger.error(f"Error creating sequence image: {str(e)}")
         st.error(f"시퀀스 이미지 생성 중 오류가 발생했습니다: {str(e)}")
         return None
+
+def create_overlapped_sequence(frames: List[Tuple[str, np.ndarray]]) -> np.ndarray:
+    """오버랩 방식으로 스윙 시퀀스 생성"""
+    if not frames:
+        raise ValueError("프레임이 없습니다.")
+    
+    # 기준 프레임 (첫 번째 프레임)
+    base_frame = frames[0][1].copy()
+    height, width = base_frame.shape[:2]
+    
+    # 결과 이미지 초기화 (알파 채너리 포함)
+    result = np.zeros((height, width, 4), dtype=np.float32)
+    
+    # 각 프레임을 투명도를 조절하여 겹치기
+    alpha_values = [0.8, 0.6, 0.5, 0.4, 0.3]  # 각 단계별 투명도
+    colors = [
+        (255, 255, 255),  # 흰색 (address)
+        (255, 200, 100),  # 연한 주황 (backswing)
+        (255, 150, 50),   # 주황 (top)
+        (255, 100, 100),  # 연한 빨강 (impact)
+        (200, 100, 255)   # 연한 보라 (follow_through)
+    ]
+    
+    for i, (phase, frame) in enumerate(frames):
+        alpha = alpha_values[i] if i < len(alpha_values) else 0.3
+        
+        # 프레임을 RGBA로 변환
+        if len(frame.shape) == 3 and frame.shape[2] == 3:
+            frame_rgba = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA).astype(np.float32)
+        elif len(frame.shape) == 3 and frame.shape[2] == 4:
+            frame_rgba = frame.astype(np.float32)
+        else:
+            # 그레이스케일이나 다른 형식인 경우 3채널로 변환
+            if len(frame.shape) == 2:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            frame_rgba = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA).astype(np.float32)
+        
+        # 크기가 다른 경우 기준 프레임 크기에 맞춤
+        if frame_rgba.shape[:2] != (height, width):
+            frame_rgba = cv2.resize(frame_rgba, (width, height))
+        
+        # 색상 틴트 적용 (선택사항)
+        if i > 0:  # 첫 번째 프레임은 원본 색상 유지
+            tint_color = colors[i] if i < len(colors) else colors[-1]
+            frame_rgba[:, :, :3] = frame_rgba[:, :, :3] * 0.7 + np.array(tint_color) * 0.3
+        
+        # 알파 값 설정
+        frame_rgba[:, :, 3] = alpha * 255
+        
+        # 블렌딩
+        if i == 0:
+            result = frame_rgba.copy()
+        else:
+            try:
+                # 알파 블렌딩
+                alpha_norm = frame_rgba[:, :, 3:4] / 255.0
+                result[:, :, :3] = result[:, :, :3] * (1 - alpha_norm) + frame_rgba[:, :, :3] * alpha_norm
+                result[:, :, 3:4] = np.maximum(result[:, :, 3:4], frame_rgba[:, :, 3:4])
+            except Exception as e:
+                logger.warning(f"Alpha blending failed: {str(e)}, using simple overlay")
+                # 블렌딩 실패 시 단순 오버레이
+                mask = frame_rgba[:, :, 3] > 0
+                result[mask] = frame_rgba[mask]
+    
+    # BGR로 변환하여 반환
+    result_bgr = cv2.cvtColor(result[:, :, :3].astype(np.uint8), cv2.COLOR_RGB2BGR)
+    
+    # 단계 라벨 추가
+    add_phase_labels(result_bgr, frames)
+    
+    return result_bgr
+
+def create_side_by_side_sequence(frames: List[Tuple[str, np.ndarray]]) -> np.ndarray:
+    """나란히 배치 방식으로 스윙 시퀀스 생성"""
+    if not frames:
+        raise ValueError("프레임이 없습니다.")
+    
+    # 모든 프레임을 같은 높이로 리사이즈
+    target_height = 400
+    resized_frames = []
+    
+    for phase, frame in frames:
+        try:
+            # 프레임이 유효한지 확인
+            if frame is None or frame.size == 0:
+                logger.warning(f"Invalid frame for phase {phase}")
+                continue
+                
+            # 채널 수 확인 및 변환
+            if len(frame.shape) == 2:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            elif len(frame.shape) == 3 and frame.shape[2] == 4:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+            elif len(frame.shape) == 3 and frame.shape[2] == 1:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            
+            height, width = frame.shape[:2]
+            if height == 0 or width == 0:
+                logger.warning(f"Zero dimension frame for phase {phase}")
+                continue
+                
+            scale = target_height / height
+            new_width = int(width * scale)
+            
+            if new_width <= 0:
+                logger.warning(f"Invalid new width for phase {phase}")
+                continue
+                
+            resized_frame = cv2.resize(frame, (new_width, target_height))
+            resized_frames.append((phase, resized_frame))
+            
+        except Exception as e:
+            logger.error(f"Error resizing frame for phase {phase}: {str(e)}")
+            continue
+    
+    if not resized_frames:
+        raise ValueError("유효한 리사이즈된 프레임이 없습니다.")
+    
+    # 전체 너비 계산
+    total_width = sum([frame.shape[1] for _, frame in resized_frames])
+    
+    # 결과 이미지 생성
+    result = np.zeros((target_height, total_width, 3), dtype=np.uint8)
+    
+    # 프레임들을 나란히 배치
+    x_offset = 0
+    for phase, frame in resized_frames:
+        try:
+            width = frame.shape[1]
+            
+            # 안전한 범위 확인
+            if x_offset + width <= total_width and frame.shape[0] <= target_height:
+                # 채널 수 확인
+                if len(frame.shape) == 3 and frame.shape[2] == 3:
+                    result[:frame.shape[0], x_offset:x_offset + width] = frame
+                else:
+                    logger.warning(f"Unexpected frame shape for phase {phase}: {frame.shape}")
+                    continue
+                    
+                # 단계 라벨 추가
+                cv2.putText(result, phase.upper(), 
+                           (x_offset + 10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                
+                x_offset += width
+            else:
+                logger.warning(f"Frame for phase {phase} exceeds boundaries")
+                
+        except Exception as e:
+            logger.error(f"Error placing frame for phase {phase}: {str(e)}")
+            continue
+    
+    return result
+
+def add_phase_labels(image: np.ndarray, frames: List[Tuple[str, np.ndarray]]) -> None:
+    """이미지에 단계별 라벨을 추가합니다."""
+    height, width = image.shape[:2]
+    
+    # 라벨 위치 계산 (우상단)
+    label_x = width - 200
+    label_y = 50
+    
+    # 배경 박스 그리기
+    cv2.rectangle(image, (label_x - 10, label_y - 30), 
+                 (label_x + 180, label_y + len(frames) * 25), 
+                 (0, 0, 0), -1)
+    cv2.rectangle(image, (label_x - 10, label_y - 30), 
+                 (label_x + 180, label_y + len(frames) * 25), 
+                 (255, 255, 255), 2)
+    
+    # 제목 추가
+    cv2.putText(image, "Swing Sequence", 
+               (label_x, label_y - 10), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    
+    # 각 단계 라벨 추가
+    colors = [(255, 255, 255), (100, 200, 255), (50, 150, 255), 
+             (100, 100, 255), (255, 100, 255)]
+    
+    for i, (phase, _) in enumerate(frames):
+        color = colors[i] if i < len(colors) else (255, 255, 255)
+        cv2.putText(image, f"{i+1}. {phase.replace('_', ' ').title()}", 
+                   (label_x, label_y + 20 + i * 20), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 def create_angle_graph(analysis_data: Dict) -> Optional[bytes]:
     """각도 변화 그래프 생성"""
@@ -410,85 +546,211 @@ def show_swing_sequence_with_state(temp_path, analysis_result):
     """스윙 시퀀스 표시 (상태 관리 포함)"""
     st.subheader("스윙 시퀀스")
     
-    # 정적 시퀀스 이미지
-    sequence_img = create_sequence_image(temp_path, analysis_result['key_frames'])
-    if sequence_img is not None:
-        sequence_img_rgb = cv2.cvtColor(sequence_img, cv2.COLOR_BGR2RGB)
-        st.image(sequence_img_rgb, use_column_width=True)
+    # 모델 가져오기
+    models = get_models()
+    if models is None:
+        st.error("모델을 로드할 수 없습니다.")
+        return
     
-    # 프레임별 재생 기능 추가
-    st.subheader("프레임별 재생")
+    _, swing_analyzer, _, _ = models
     
-    # 세션 상태 초기화
-    if 'seq_current_frame' not in st.session_state:
-        st.session_state.seq_current_frame = 0
-    if 'seq_is_playing' not in st.session_state:
-        st.session_state.seq_is_playing = False
+    # 프레임 데이터 일치성 확인
+    frames_data = analysis_result.get('frames_data', analysis_result.get('frames', []))
     
-    # 컨트롤 컬럼 생성
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
+    # 탭으로 세 가지 시퀀스 방식 분리
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "🎭 오버랩 시퀀스", 
+        "📋 나란히 배치", 
+        "🏃‍♂️ 연속 겹침",
+        "🎯 2D 모션"
+    ])
     
-    # 재생 컨트롤
-    with col1:
-        if st.button("⏮️ 처음으로", key="seq_first"):
-            st.session_state.seq_current_frame = 0
-            st.session_state.seq_is_playing = False
-    
-    with col2:
-        if st.button("▶️ 재생" if not st.session_state.seq_is_playing else "⏸️ 일시정지", key="seq_play"):
-            st.session_state.seq_is_playing = not st.session_state.seq_is_playing
-    
-    with col3:
-        if st.button("⏭️ 끝으로", key="seq_last"):
-            st.session_state.seq_current_frame = len(analysis_result['frames']) - 1
-            st.session_state.seq_is_playing = False
-    
-    # 프레임 슬라이더
-    with col4:
-        st.session_state.seq_current_frame = st.slider(
-            "프레임",
-            0,
-            len(analysis_result['frames']) - 1,
-            st.session_state.seq_current_frame,
-            key="seq_slider"
-        )
-    
-    # 현재 프레임 표시
-    current_frame_data = analysis_result['frames'][st.session_state.seq_current_frame]
-    
-    # 프레임 정보를 시각화
-    col_pose, col_info = st.columns([2, 1])
-    
-    with col_pose:
-        # 포즈 시각화
-        fig = create_pose_visualization(current_frame_data)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col_info:
-        # 현재 프레임의 각도 정보 표시
-        st.markdown("### 현재 프레임 정보")
-        angles = current_frame_data['angles']
+    with tab1:
+        st.markdown("### 🎭 오버랩 스윙 시퀀스")
+        st.markdown("각 스윙 단계가 투명도를 조절하여 겹쳐서 표시됩니다. 사람 영역을 자동 크롭하여 더욱 선명하게 볼 수 있습니다.")
         
-        # 주요 각도 표시
-        st.metric("어깨 회전", f"{angles.get('shoulder_angle', 0):.1f}°")
-        st.metric("오른팔 각도", f"{angles.get('right_arm', 0):.1f}°")
-        st.metric("왼팔 각도", f"{angles.get('left_arm', 0):.1f}°")
-        st.metric("오른쪽 무릎", f"{angles.get('right_knee_angle', 0):.1f}°")
-        st.metric("왼쪽 무릎", f"{angles.get('left_knee_angle', 0):.1f}°")
+        try:
+            # 오버랩 시퀀스 생성
+            overlap_img = create_sequence_image(
+                temp_path, 
+                analysis_result['key_frames'], 
+                overlap_mode=True, 
+                analysis_frames=frames_data
+            )
+            
+            if overlap_img is not None:
+                overlap_img_rgb = cv2.cvtColor(overlap_img, cv2.COLOR_BGR2RGB)
+                st.image(overlap_img_rgb, use_column_width=True)
+                
+                # 이미지를 파일로 저장하고 다운로드 버튼 제공
+                overlap_path = os.path.join(TEMP_DIR, "overlap_sequence.jpg")
+                cv2.imwrite(overlap_path, overlap_img)
+                
+                if os.path.exists(overlap_path):
+                    with open(overlap_path, "rb") as file:
+                        st.download_button(
+                            label="💾 오버랩 시퀀스 다운로드",
+                            data=file.read(),
+                            file_name="golf_swing_overlap_sequence.jpg",
+                            mime="image/jpeg"
+                        )
+            else:
+                st.error("오버랩 시퀀스 이미지를 생성할 수 없습니다.")
+                
+        except Exception as e:
+            logger.error(f"Error creating overlap sequence: {str(e)}")
+            st.error(f"오버랩 시퀀스 생성 중 오류: {str(e)}")
     
-    # 자동 재생 로직
-    if st.session_state.seq_is_playing:
-        if st.session_state.seq_current_frame < len(analysis_result['frames']) - 1:
-            st.session_state.seq_current_frame += 1
-            time.sleep(0.1)  # 프레임 간 딜레이
-            st.rerun()
+    with tab2:
+        st.markdown("### 📋 나란히 배치 스윙 시퀀스")
+        st.markdown("각 스윙 단계가 순서대로 나란히 배치되어 표시됩니다. 사람 영역을 자동 크롭하여 각 단계를 더욱 명확하게 비교할 수 있습니다.")
+        
+        try:
+            # 나란히 배치 시퀀스 생성
+            side_img = create_sequence_image(
+                temp_path, 
+                analysis_result['key_frames'], 
+                overlap_mode=False, 
+                analysis_frames=frames_data
+            )
+            
+            if side_img is not None:
+                side_img_rgb = cv2.cvtColor(side_img, cv2.COLOR_BGR2RGB)
+                st.image(side_img_rgb, use_column_width=True)
+                
+                # 이미지를 파일로 저장하고 다운로드 버튼 제공
+                side_path = os.path.join(TEMP_DIR, "side_by_side_sequence.jpg")
+                cv2.imwrite(side_path, side_img)
+                
+                if os.path.exists(side_path):
+                    with open(side_path, "rb") as file:
+                        st.download_button(
+                            label="💾 나란히 배치 시퀀스 다운로드",
+                            data=file.read(),
+                            file_name="golf_swing_side_by_side_sequence.jpg",
+                            mime="image/jpeg"
+                        )
+            else:
+                st.error("나란히 배치 시퀀스 이미지를 생성할 수 없습니다.")
+                
+        except Exception as e:
+            logger.error(f"Error creating side-by-side sequence: {str(e)}")
+            st.error(f"나란히 배치 시퀀스 생성 중 오류: {str(e)}")
+    
+    with tab3:
+        st.markdown("### 🏃‍♂️ 연속 겹침 시퀀스")
+        st.markdown("**30% 겹침으로 연속적인 스윙 모션을 보여주는 시퀀스**")
+        
+        if 'continuous_sequence_path' in st.session_state and st.session_state.continuous_sequence_path:
+          st.image(st.session_state.continuous_sequence_path, caption="연속 겹침 시퀀스")
+          
+          # 다운로드 버튼
+          if os.path.exists(st.session_state.continuous_sequence_path):
+            with open(st.session_state.continuous_sequence_path, "rb") as file:
+              st.download_button(
+                label="📥 연속 겹침 시퀀스 다운로드",
+                data=file.read(),
+                file_name="continuous_overlap_sequence.jpg",
+                mime="image/jpeg"
+              )
         else:
-            st.session_state.seq_is_playing = False
-            st.rerun()
+          st.info("비디오를 업로드하고 분석을 완료하면 연속 겹침 시퀀스가 표시됩니다.")
+
+    with tab4:
+        st.markdown("### 🎯 2D 모션 시각화")
+        st.markdown("**프레임별 2D 포즈를 시각화하고 스윙 모션을 분석합니다.**")
+        
+        # 세션 상태 초기화
+        if 'motion_2d_frame_idx' not in st.session_state:
+            st.session_state.motion_2d_frame_idx = 0
+        if 'motion_2d_is_playing' not in st.session_state:
+            st.session_state.motion_2d_is_playing = False
+        
+        # 프레임 데이터 확인
+        if not frames_data:
+            st.warning("분석된 프레임 데이터가 없습니다.")
+            return
+        
+        # 인덱스 범위 확인
+        if st.session_state.motion_2d_frame_idx >= len(frames_data):
+            st.session_state.motion_2d_frame_idx = len(frames_data) - 1
+        
+        # 컨트롤 섹션
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # 프레임 슬라이더
+            st.session_state.motion_2d_frame_idx = st.slider(
+                "프레임 선택", 
+                0, 
+                len(frames_data) - 1, 
+                st.session_state.motion_2d_frame_idx,
+                key="motion_2d_slider"
+            )
+            
+            # 재생 컨트롤
+            cols = st.columns(4)
+            if cols[0].button("⏮️ 처음으로", key="motion_2d_first"):
+                st.session_state.motion_2d_frame_idx = 0
+                st.session_state.motion_2d_is_playing = False
+            if cols[1].button("▶️ 재생" if not st.session_state.motion_2d_is_playing else "⏸️ 일시정지", key="motion_2d_play"):
+                st.session_state.motion_2d_is_playing = not st.session_state.motion_2d_is_playing
+            if cols[2].button("⏭️ 끝으로", key="motion_2d_last"):
+                st.session_state.motion_2d_frame_idx = len(frames_data) - 1
+                st.session_state.motion_2d_is_playing = False
+            if cols[3].button("🔄 리셋", key="motion_2d_reset"):
+                st.session_state.motion_2d_frame_idx = 0
+                st.session_state.motion_2d_is_playing = False
+        
+        with col2:
+            # 현재 프레임 정보
+            current_frame_data = frames_data[st.session_state.motion_2d_frame_idx]
+            st.markdown("### 현재 프레임 정보")
+            st.metric("프레임 번호", st.session_state.motion_2d_frame_idx)
+            
+            # 주요 각도 표시
+            angles = current_frame_data.get('angles', {})
+            if angles:
+                st.metric("어깨 회전", f"{angles.get('shoulder_angle', 0):.1f}°")
+                st.metric("오른팔 각도", f"{angles.get('right_arm', 0):.1f}°")
+                st.metric("왼팔 각도", f"{angles.get('left_arm', 0):.1f}°")
+        
+        # 2D 포즈 시각화
+        st.markdown("### 2D 포즈 시각화")
+        try:
+            # Plotly를 사용한 2D 포즈 시각화
+            fig = create_pose_visualization(current_frame_data)
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"2D 포즈 시각화 중 오류: {str(e)}")
+        
+        # 키 프레임 표시
+        key_frames = analysis_result.get('key_frames', {})
+        if key_frames:
+            st.markdown("### 주요 프레임")
+            for phase, frame_idx in key_frames.items():
+                if frame_idx == st.session_state.motion_2d_frame_idx:
+                    st.success(f"현재 프레임은 '{phase}' 단계입니다.")
+        
+        # 자동 재생 로직
+        if st.session_state.motion_2d_is_playing:
+            if st.session_state.motion_2d_frame_idx < len(frames_data) - 1:
+                st.session_state.motion_2d_frame_idx += 1
+                time.sleep(0.1)  # 프레임 간 딜레이
+                st.rerun()
+            else:
+                st.session_state.motion_2d_is_playing = False
+                st.rerun()
 
 def show_3d_analysis_with_state(analysis_result):
     """3D 분석 결과 표시 (상태 관리 포함)"""
     st.subheader("3D 스윙 분석")
+    
+    # 프레임 데이터 키 일치성 확인
+    frames_data = analysis_result.get('frames_data', analysis_result.get('frames', []))
+    if not frames_data:
+        st.error("분석된 프레임 데이터가 없습니다.")
+        return
     
     # 세션 상태 초기화
     if 'three_d_frame_idx' not in st.session_state:
@@ -496,21 +758,47 @@ def show_3d_analysis_with_state(analysis_result):
     if 'three_d_is_playing' not in st.session_state:
         st.session_state.three_d_is_playing = False
     
+    # 인덱스 범위 확인 및 수정
+    if st.session_state.three_d_frame_idx >= len(frames_data):
+        st.session_state.three_d_frame_idx = len(frames_data) - 1
+    
     # 3D 포즈 시각화
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.subheader("3D 포즈 뷰어")
+        
+        # 세부 수준 선택
+        detail_level = st.selectbox(
+            "🎨 세부 수준 선택",
+            options=['basic', 'medium', 'full'],
+            index=2,  # 기본값: full
+            help="basic: 기본 골격만, medium: 손발 추가, full: 모든 세부사항"
+        )
+        
+        # 세부 수준 설명
+        if detail_level == 'basic':
+            st.info("💡 기본 골격: 어깨, 팔, 몸통, 다리의 주요 뼈대만 표시")
+        elif detail_level == 'medium':
+            st.info("💡 중간 세부: 기본 골격 + 손과 발의 세부 구조 표시")
+        else:
+            st.info("💡 모든 세부사항: 얼굴, 손, 발을 포함한 33개 모든 포인트와 부드러운 곡선 표시")
+        
+        # 궤적 표시 옵션
+        show_trajectory = st.checkbox("🏌️ 스윙 궤적 표시", value=False, help="클럽(손목)의 스윙 궤적을 표시합니다")
+        
         st.session_state.three_d_frame_idx = st.slider(
             "프레임 선택", 
             0, 
-            len(analysis_result['frames']) - 1, 
+            len(frames_data) - 1, 
             st.session_state.three_d_frame_idx,
             key="3d_frame_slider"
         )
         
         # Plotly를 사용한 3D 시각화
-        fig = create_3d_pose_plot(analysis_result['frames'][st.session_state.three_d_frame_idx])
+        current_frame = frames_data[st.session_state.three_d_frame_idx]
+        trajectory_data = frames_data if show_trajectory else None
+        fig = create_3d_pose_plot(current_frame, detail_level, show_trajectory, trajectory_data)
         st.plotly_chart(fig, use_container_width=True)
         
         # 재생 컨트롤
@@ -521,7 +809,7 @@ def show_3d_analysis_with_state(analysis_result):
         if cols[1].button("▶️ 재생" if not st.session_state.three_d_is_playing else "⏸️ 일시정지", key="3d_play"):
             st.session_state.three_d_is_playing = not st.session_state.three_d_is_playing
         if cols[2].button("⏭️ 끝으로", key="3d_last"):
-            st.session_state.three_d_frame_idx = len(analysis_result['frames']) - 1
+            st.session_state.three_d_frame_idx = len(frames_data) - 1
             st.session_state.three_d_is_playing = False
     
     with col2:
@@ -530,7 +818,7 @@ def show_3d_analysis_with_state(analysis_result):
     
     # 자동 재생 로직
     if st.session_state.three_d_is_playing:
-        if st.session_state.three_d_frame_idx < len(analysis_result['frames']) - 1:
+        if st.session_state.three_d_frame_idx < len(frames_data) - 1:
             st.session_state.three_d_frame_idx += 1
             time.sleep(0.1)  # 프레임 간 딜레이
             st.rerun()
@@ -539,12 +827,12 @@ def show_3d_analysis_with_state(analysis_result):
             st.rerun()
 
 def create_pose_visualization(frame_data: Dict) -> go.Figure:
-    """프레임 데이터를 사용하여 2D 포즈 시각화 생성"""
+    """프레임 데이터를 사용하여 2D 포즈 시각화 생성 - 개선된 버전 (더 많은 점, 검은 배경)"""
     # Plotly 피겨 생성
     fig = go.Figure()
     
-    # 랜드마크 연결 정의
-    connections = [
+    # 확장된 랜드마크 연결 정의 (더 많은 연결선)
+    basic_connections = [
         ('left_shoulder', 'right_shoulder'),
         ('left_shoulder', 'left_elbow'),
         ('left_elbow', 'left_wrist'),
@@ -559,10 +847,43 @@ def create_pose_visualization(frame_data: Dict) -> go.Figure:
         ('right_knee', 'right_ankle')
     ]
     
+    # 얼굴 연결 (있는 경우)
+    face_connections = [
+        ('nose', 'left_eye'), ('nose', 'right_eye'),
+        ('left_eye', 'left_ear'), ('right_eye', 'right_ear'),
+        ('mouth_left', 'mouth_right')
+    ]
+    
+    # 손 연결 (있는 경우)
+    hand_connections = [
+        ('left_wrist', 'left_pinky'), ('left_wrist', 'left_index'), ('left_wrist', 'left_thumb'),
+        ('right_wrist', 'right_pinky'), ('right_wrist', 'right_index'), ('right_wrist', 'right_thumb')
+    ]
+    
+    # 발 연결 (있는 경우)
+    foot_connections = [
+        ('left_ankle', 'left_heel'), ('left_heel', 'left_foot_index'),
+        ('right_ankle', 'right_heel'), ('right_heel', 'right_foot_index')
+    ]
+    
     landmarks = frame_data['landmarks']
     
-    # 랜드마크 점 추가
+    # 모든 랜드마크 점 추가 (색상별로 구분)
     for name, point in landmarks.items():
+        # 포인트 타입에 따라 색상과 크기 구분
+        if 'eye' in name or 'ear' in name or 'nose' in name or 'mouth' in name:
+            color = '#FFD700'  # 골드 (얼굴)
+            size = 8
+        elif 'wrist' in name or 'pinky' in name or 'index' in name or 'thumb' in name:
+            color = '#FF69B4'  # 핫 핑크 (손)
+            size = 10
+        elif 'ankle' in name or 'heel' in name or 'foot' in name:
+            color = '#00FF7F'  # 스프링 그린 (발)
+            size = 10
+        else:
+            color = '#FFFFFF'  # 흰색 (기본 골격)
+            size = 12
+        
         fig.add_trace(go.Scatter(
             x=[point[0]], 
             y=[point[1]],
@@ -570,108 +891,96 @@ def create_pose_visualization(frame_data: Dict) -> go.Figure:
             name=name,
             text=[name],
             textposition='top center',
-            marker=dict(size=10, color='blue'),
-            showlegend=False
+            marker=dict(
+                size=size, 
+                color=color,
+                line=dict(color='black', width=1)  # 테두리 추가
+            ),
+            textfont=dict(
+                size=8,
+                color='white'  # 텍스트를 흰색으로
+            ),
+            showlegend=False,
+            hovertemplate=f'<b>{name}</b><br>x: %{{x:.3f}}<br>y: %{{y:.3f}}<extra></extra>'
         ))
     
-    # 연결선 추가
-    for start, end in connections:
-        if start in landmarks and end in landmarks:
-            start_point = landmarks[start]
-            end_point = landmarks[end]
-            fig.add_trace(go.Scatter(
-                x=[start_point[0], end_point[0]],
-                y=[start_point[1], end_point[1]],
-                mode='lines',
-                line=dict(width=2, color='red'),
-                showlegend=False
-            ))
+    # 연결선 추가 함수
+    def add_connections(connections, color, width=3):
+        for start, end in connections:
+            if start in landmarks and end in landmarks:
+                start_point = landmarks[start]
+                end_point = landmarks[end]
+                fig.add_trace(go.Scatter(
+                    x=[start_point[0], end_point[0]],
+                    y=[start_point[1], end_point[1]],
+                    mode='lines',
+                    line=dict(width=width, color=color),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
     
-    # 레이아웃 설정
+    # 각 부위별로 다른 색상의 연결선 추가
+    add_connections(basic_connections, '#00D4FF', 4)      # 시아노 블루 (기본 골격)
+    add_connections(face_connections, '#FFB347', 2)       # 피치 (얼굴)
+    add_connections(hand_connections, '#DA70D6', 2)       # 오키드 (손)
+    add_connections(foot_connections, '#32CD32', 3)       # 라임 그린 (발)
+    
+    # 데이터 범위 계산 (오토 스케일을 위해)
+    x_coords = [point[0] for point in landmarks.values()]
+    y_coords = [point[1] for point in landmarks.values()]
+    
+    # 여백을 위한 패딩 계산
+    x_range = max(x_coords) - min(x_coords)
+    y_range = max(y_coords) - min(y_coords)
+    padding = max(x_range, y_range) * 0.1  # 10% 패딩
+    
+    x_min, x_max = min(x_coords) - padding, max(x_coords) + padding
+    y_min, y_max = min(y_coords) - padding, max(y_coords) + padding
+    
+    # 레이아웃 설정 (검은 배경, 오토 스케일)
     fig.update_layout(
         showlegend=False,
-        yaxis=dict(
-            scaleanchor="x",
-            scaleratio=1,
-            range=[1, 0]  # y축 반전
+        xaxis=dict(
+            title='X (좌우)',
+            showgrid=True,
+            gridcolor='rgba(128, 128, 128, 0.3)',  # 회색 반투명 그리드
+            color='white',
+            zeroline=False,
+            range=[x_min, x_max]  # 데이터에 맞춘 범위
         ),
-        margin=dict(l=0, r=0, t=0, b=0),
-        plot_bgcolor='white',
+        yaxis=dict(
+            title='Y (상하)',
+            showgrid=True,
+            gridcolor='rgba(128, 128, 128, 0.3)',  # 회색 반투명 그리드
+            color='white',
+            zeroline=False,
+            range=[y_max, y_min],  # y축 반전 (위쪽이 0에 가깝게)
+            scaleanchor="x",
+            scaleratio=1
+        ),
+        margin=dict(l=50, r=50, t=50, b=50),
+        plot_bgcolor='black',      # 플롯 배경을 검은색으로
+        paper_bgcolor='black',     # 전체 배경을 검은색으로
+        font=dict(color='white'),  # 텍스트 색상을 흰색으로
         width=600,
         height=600
     )
     
     return fig
 
-def create_3d_pose_plot(frame_data: Dict) -> go.Figure:
-    """프레임 데이터를 사용하여 3D 포즈 플롯 생성"""
+def create_3d_pose_plot(frame_data: Dict, detail_level: str = 'full', 
+                       show_trajectory: bool = False, trajectory_data: Optional[List[Dict]] = None) -> go.Figure:
+    """프레임 데이터를 사용하여 3D 포즈 플롯 생성 - 개선된 버전"""
     try:
-        fig = go.Figure()
+        # 3D 시각화 클래스 사용
+        from visualization_3d import SwingVisualizer3D
+        visualizer = SwingVisualizer3D()
         
-        # 디버그: 랜드마크 좌표 로깅
-        logger.debug("3D Pose Landmarks:")
-        for name, point in frame_data['landmarks'].items():
-            logger.debug(f"{name}: {point}")
+        # 세부 수준에 따라 3D 플롯 생성
+        fig = visualizer.create_pose_plot(frame_data, show_trajectory=show_trajectory, 
+                                        trajectory_data=trajectory_data, detail_level=detail_level)
         
-        # 좌표계 변환: MediaPipe의 좌표계를 골프 자세에 맞게 변환
-        # MediaPipe: Y-up, X-right, Z-forward
-        # 골프 자세: Y-up (height), X-right (width), Z-forward (depth)
-        landmarks_transformed = {}
-        for name, point in frame_data['landmarks'].items():
-            landmarks_transformed[name] = [
-                point[0],     # x -> x (right/left)
-                point[1],     # y -> y (up/down)
-                point[2]      # z -> z (forward/backward)
-            ]
-        
-        # 랜드마크 점 추가
-        for name, point in landmarks_transformed.items():
-            fig.add_trace(go.Scatter3d(
-                x=[point[0]],
-                y=[point[1]],
-                z=[point[2]],
-                mode='markers+text',
-                name=name,
-                text=[name],
-                textposition='top center',
-                marker=dict(
-                    size=8,
-                    color='blue',
-                    symbol='circle'
-                ),
-                showlegend=False
-            ))
-        
-        # 스켈레톤 연결선 추가
-        connections = [
-            ('left_shoulder', 'right_shoulder'),
-            ('left_shoulder', 'left_elbow'),
-            ('left_elbow', 'left_wrist'),
-            ('right_shoulder', 'right_elbow'),
-            ('right_elbow', 'right_wrist'),
-            ('left_shoulder', 'left_hip'),
-            ('right_shoulder', 'right_hip'),
-            ('left_hip', 'right_hip'),
-            ('left_hip', 'left_knee'),
-            ('left_knee', 'left_ankle'),
-            ('right_hip', 'right_knee'),
-            ('right_knee', 'right_ankle')
-        ]
-        
-        for start, end in connections:
-            if start in landmarks_transformed and end in landmarks_transformed:
-                start_point = landmarks_transformed[start]
-                end_point = landmarks_transformed[end]
-                fig.add_trace(go.Scatter3d(
-                    x=[start_point[0], end_point[0]],
-                    y=[start_point[1], end_point[1]],
-                    z=[start_point[2], end_point[2]],
-                    mode='lines',
-                    line=dict(color='red', width=5),
-                    showlegend=False
-                ))
-        
-        # 좌표축 추가
+        # 좌표축과 그리드 추가
         axis_length = 0.5
         origin = [0, 0, 0]
         
@@ -730,24 +1039,8 @@ def create_3d_pose_plot(frame_data: Dict) -> go.Figure:
                 showlegend=False
             ))
         
-        # 카메라 뷰 설정 - 정면에서 바라보는 각도로 설정
-        camera = dict(
-            up=dict(x=0, y=1, z=0),  # Y축이 위쪽
-            center=dict(x=0, y=0, z=0),
-            eye=dict(x=0, y=0, z=2.0)  # 정면에서 바라보기
-        )
-        
-        # 레이아웃 설정
+        # 레이아웃 업데이트 (크기 조정)
         fig.update_layout(
-            scene=dict(
-                xaxis=dict(title='X (좌우)', range=[-1, 1]),
-                yaxis=dict(title='Y (상하)', range=[0, 2]),
-                zaxis=dict(title='Z (앞뒤)', range=[-1, 1]),
-                aspectmode='data',
-                camera=camera
-            ),
-            margin=dict(l=0, r=0, t=0, b=0),
-            showlegend=False,
             width=800,
             height=600
         )
@@ -1060,6 +1353,457 @@ def get_swing_advice(phase: str, check_name: str) -> str:
     }
     
     return advice_dict.get(phase, {}).get(check_name, "자세를 전반적으로 점검해보세요.")
+
+def create_continuous_overlap_sequence(frames: List[Tuple[str, np.ndarray]]) -> np.ndarray:
+    """연속 겹침 방식으로 스윙 시퀀스 생성 (사람 영역 크롭 + 겹침)"""
+    if not frames:
+        raise ValueError("프레임이 없습니다.")
+    
+    # 각 프레임은 이미 크롭된 상태로 전달됨
+    target_height = 500  # 목표 높이
+    
+    # 모든 프레임을 동일한 높이로 리사이즈
+    resized_frames = []
+    for phase, frame in frames:
+        h, w = frame.shape[:2]
+        scale = target_height / h
+        new_width = int(w * scale)
+        resized = cv2.resize(frame, (new_width, target_height))
+        resized_frames.append((phase, resized))
+    
+    if not resized_frames:
+        raise ValueError("리사이즈된 프레임이 없습니다.")
+    
+    # 겹침 비율 (각 프레임이 다음 프레임과 얼마나 겹칠지)
+    overlap_ratio = 0.3  # 30% 겹침
+    
+    # 전체 너비 계산
+    total_width = 0
+    frame_widths = [frame.shape[1] for _, frame in resized_frames]
+    
+    # 첫 번째 프레임은 전체 너비
+    total_width += frame_widths[0]
+    
+    # 나머지 프레임들은 겹침을 고려한 너비
+    for i in range(1, len(frame_widths)):
+        total_width += int(frame_widths[i] * (1 - overlap_ratio))
+    
+    # 결과 이미지 생성
+    result = np.zeros((target_height, total_width, 3), dtype=np.uint8)
+    
+    # 첫 번째 프레임 배치
+    x_offset = 0
+    phase, first_frame = resized_frames[0]
+    result[:, x_offset:x_offset + first_frame.shape[1]] = first_frame
+    
+    # 단계 라벨 추가 (첫 번째 프레임)
+    cv2.putText(result, phase.upper(), 
+               (x_offset + 10, 30), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.putText(result, phase.upper(), 
+               (x_offset + 10, 30), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 1)
+    
+    # 나머지 프레임들을 겹쳐서 배치
+    for i in range(1, len(resized_frames)):
+        phase, frame = resized_frames[i]
+        
+        # 이전 프레임과 겹치도록 x_offset 계산
+        prev_width = resized_frames[i-1][1].shape[1]
+        x_offset += int(prev_width * (1 - overlap_ratio))
+        
+        # 겹치는 영역 계산
+        frame_end = x_offset + frame.shape[1]
+        if frame_end > total_width:
+            frame_end = total_width
+            frame = frame[:, :total_width - x_offset]
+        
+        # 알파 블렌딩으로 자연스러운 겹침 효과
+        alpha = 0.7  # 투명도
+        
+        # 현재 프레임 영역
+        current_region = result[:, x_offset:frame_end]
+        
+        if current_region.shape[1] > 0 and frame.shape[1] > 0:
+            # 겹치는 부분만 블렌딩
+            overlap_width = min(current_region.shape[1], frame.shape[1])
+            
+            if overlap_width > 0:
+                # 안전한 영역 추출
+                safe_current = current_region[:, :overlap_width]
+                safe_frame = frame[:, :overlap_width]
+                
+                # 높이가 다른 경우 맞춤
+                if safe_current.shape[0] != safe_frame.shape[0]:
+                    min_height = min(safe_current.shape[0], safe_frame.shape[0])
+                    safe_current = safe_current[:min_height, :]
+                    safe_frame = safe_frame[:min_height, :]
+                
+                # 채널 수 확인 및 맞춤
+                if len(safe_current.shape) == 3 and len(safe_frame.shape) == 3:
+                    if safe_current.shape[2] == safe_frame.shape[2]:
+                        # 동일한 채널 수인 경우 블렌딩
+                        try:
+                            blended = cv2.addWeighted(
+                                safe_current.astype(np.uint8), 
+                                1 - alpha, 
+                                safe_frame.astype(np.uint8), 
+                                alpha, 
+                                0
+                            )
+                            result[:blended.shape[0], x_offset:x_offset + overlap_width] = blended
+                        except Exception as e:
+                            logger.warning(f"Blending failed, using overlay: {str(e)}")
+                            # 블렌딩 실패 시 단순 오버레이
+                            result[:safe_frame.shape[0], x_offset:x_offset + overlap_width] = safe_frame
+                    else:
+                        # 채널 수가 다른 경우 단순 오버레이
+                        result[:safe_frame.shape[0], x_offset:x_offset + overlap_width] = safe_frame
+                else:
+                    # 차원이 다른 경우 단순 오버레이
+                    result[:safe_frame.shape[0], x_offset:x_offset + overlap_width] = safe_frame
+                
+                # 겹치지 않는 부분은 그대로 추가
+                if frame.shape[1] > overlap_width:
+                    remaining_width = min(frame.shape[1] - overlap_width, total_width - x_offset - overlap_width)
+                    if remaining_width > 0:
+                        start_col = x_offset + overlap_width
+                        end_col = start_col + remaining_width
+                        frame_start_col = overlap_width
+                        frame_end_col = overlap_width + remaining_width
+                        
+                        # 안전한 범위 내에서만 복사
+                        if (end_col <= total_width and 
+                            frame_end_col <= frame.shape[1] and 
+                            frame.shape[0] <= target_height):
+                            result[:frame.shape[0], start_col:end_col] = frame[:, frame_start_col:frame_end_col]
+        
+        # 단계 라벨 추가
+        label_x = x_offset + frame.shape[1] // 2 - 30
+        cv2.putText(result, phase.upper(), 
+                   (max(0, label_x), 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(result, phase.upper(), 
+                   (max(0, label_x), 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 1)
+    
+    return result
+
+def auto_crop_person_area(frame: np.ndarray, landmarks_data: Dict) -> np.ndarray:
+    """랜드마크 데이터를 이용해 사람 영역을 자동으로 크롭합니다."""
+    try:
+        h, w = frame.shape[:2]
+        
+        # 주요 랜드마크만 사용 (신뢰성 높은 포인트들)
+        key_landmarks = [
+            'left_shoulder', 'right_shoulder',
+            'left_elbow', 'right_elbow', 
+            'left_wrist', 'right_wrist',
+            'left_hip', 'right_hip',
+            'left_knee', 'right_knee',
+            'left_ankle', 'right_ankle'
+        ]
+        
+        valid_points = []
+        for landmark_name in key_landmarks:
+            if landmark_name in landmarks_data and landmarks_data[landmark_name]:
+                point = landmarks_data[landmark_name]
+                if len(point) >= 2:
+                    # 좌표가 0-1 사이의 정규화된 값인지 확인
+                    x, y = point[0], point[1]
+                    
+                    # 정규화된 좌표를 픽셀 좌표로 변환
+                    if 0 <= x <= 1 and 0 <= y <= 1:
+                        pixel_x = int(x * w)
+                        pixel_y = int(y * h)
+                    else:
+                        # 이미 픽셀 좌표인 경우
+                        pixel_x = int(x)
+                        pixel_y = int(y)
+                    
+                    # 유효한 범위 내의 좌표만 추가
+                    if 0 <= pixel_x < w and 0 <= pixel_y < h:
+                        valid_points.append([pixel_x, pixel_y])
+        
+        if len(valid_points) < 4:  # 최소 4개의 유효한 포인트가 필요
+            logger.warning(f"Not enough valid landmarks: {len(valid_points)}")
+            # 엣지 감지 방법으로 대체
+            return crop_using_edge_detection(frame)
+        
+        # 바운딩 박스 계산
+        points = np.array(valid_points)
+        min_x, min_y = np.min(points, axis=0)
+        max_x, max_y = np.max(points, axis=0)
+        
+        # 바운딩 박스 크기 계산
+        bbox_width = max_x - min_x
+        bbox_height = max_y - min_y
+        
+        # 여유 공간 추가 (바운딩 박스 크기의 10%)
+        padding_x = max(int(bbox_width * 0.1), 20)  # 최소 20픽셀
+        padding_y = max(int(bbox_height * 0.1), 20)  # 최소 20픽셀
+        
+        # 최종 크롭 영역 계산
+        x1 = max(0, min_x - padding_x)
+        y1 = max(0, min_y - padding_y)
+        x2 = min(w, max_x + padding_x)
+        y2 = min(h, max_y + padding_y)
+        
+        # 최소 크기 보장 (너무 작으면 확장)
+        min_width = 150
+        min_height = 200
+        
+        if x2 - x1 < min_width:
+            center_x = (x1 + x2) // 2
+            half_width = min_width // 2
+            x1 = max(0, center_x - half_width)
+            x2 = min(w, center_x + half_width)
+        
+        if y2 - y1 < min_height:
+            center_y = (y1 + y2) // 2
+            half_height = min_height // 2
+            y1 = max(0, center_y - half_height)
+            y2 = min(h, center_y + half_height)
+        
+        logger.debug(f"Crop area: ({x1}, {y1}) to ({x2}, {y2}) from frame size ({w}, {h})")
+        
+        # 크롭 실행
+        cropped = frame[y1:y2, x1:x2]
+        
+        # 크롭된 이미지가 너무 작으면 원본 반환
+        if cropped.shape[0] < 50 or cropped.shape[1] < 50:
+            logger.warning("Cropped image too small, returning original")
+            return frame
+        
+        return cropped
+        
+    except Exception as e:
+        logger.error(f"Error in auto_crop_person_area: {str(e)}")
+        # 에러 발생 시 엣지 감지 방법으로 대체
+        return crop_using_edge_detection(frame)
+
+def crop_using_edge_detection(frame: np.ndarray) -> np.ndarray:
+    """엣지 감지를 이용한 사람 영역 크롭 (대체 방법)"""
+    try:
+        h, w = frame.shape[:2]
+        
+        # 그레이스케일 변환
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # 가우시안 블러로 노이즈 제거
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        # 엣지 감지
+        edges = cv2.Canny(blurred, 50, 150)
+        
+        # 모폴로지 연산으로 엣지 연결
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+        
+        # 컨투어 찾기
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if contours:
+            # 가장 큰 컨투어들 중에서 중앙에 가까운 것 선택
+            large_contours = [c for c in contours if cv2.contourArea(c) > 1000]
+            
+            if large_contours:
+                # 중앙에 가장 가까운 큰 컨투어 선택
+                center_x, center_y = w // 2, h // 2
+                best_contour = min(large_contours, 
+                                 key=lambda c: np.linalg.norm(
+                                     np.array(cv2.boundingRect(c)[:2]) + 
+                                     np.array(cv2.boundingRect(c)[2:]) // 2 - 
+                                     np.array([center_x, center_y])
+                                 ))
+                
+                x, y, cw, ch = cv2.boundingRect(best_contour)
+                
+                # 여유 공간 추가
+                padding = 30
+                x = max(0, x - padding)
+                y = max(0, y - padding)
+                cw = min(w - x, cw + 2 * padding)
+                ch = min(h - y, ch + 2 * padding)
+                
+                logger.debug(f"Edge detection crop: ({x}, {y}) size ({cw}, {ch})")
+                return frame[y:y+ch, x:x+cw]
+        
+        # 컨투어를 찾지 못한 경우 중앙 부분 크롭
+        logger.warning("No suitable contours found, using center crop")
+        crop_w = int(w * 0.7)  # 70% 너비
+        crop_h = int(h * 0.9)  # 90% 높이
+        start_x = (w - crop_w) // 2
+        start_y = (h - crop_h) // 2
+        
+        return frame[start_y:start_y+crop_h, start_x:start_x+crop_w]
+        
+    except Exception as e:
+        logger.error(f"Error in crop_using_edge_detection: {str(e)}")
+        # 최후의 수단으로 중앙 크롭
+        h, w = frame.shape[:2]
+        crop_w = int(w * 0.8)
+        crop_h = int(h * 0.9)
+        start_x = (w - crop_w) // 2
+        start_y = (h - crop_h) // 2
+        return frame[start_y:start_y+crop_h, start_x:start_x+crop_w]
+
+def create_swing_sequence_local(video_path: str, key_frames: Dict[str, int], 
+                               output_path: str = "swing_sequence.jpg", 
+                               overlap_mode: str = "overlap") -> str:
+    """로컬 스윙 시퀀스 생성 함수"""
+    try:
+        cap = cv2.VideoCapture(video_path)
+        
+        # 키 프레임 순서 정의
+        if overlap_mode == "continuous":
+            # 연속 겹침용 - 더 많은 프레임 사용
+            frame_keys = ['address', 'takeaway', 'backswing_start', 'backswing_mid', 'top', 
+                         'transition', 'downswing_start', 'downswing_mid', 'impact', 
+                         'follow_start', 'follow_mid', 'finish']
+        else:
+            # 기본 5단계
+            frame_keys = ['address', 'backswing', 'top', 'impact', 'follow_through']
+        
+        frames = []
+        
+        for phase in frame_keys:
+            frame_idx = key_frames.get(phase)
+            if frame_idx is not None:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                ret, frame = cap.read()
+                
+                if ret:
+                    # 프레임 크기 조정
+                    height, width = frame.shape[:2]
+                    if width > 600:
+                        scale = 600 / width
+                        new_width = int(width * scale)
+                        new_height = int(height * scale)
+                        frame = cv2.resize(frame, (new_width, new_height))
+                    
+                    frames.append((phase, frame))
+        
+        cap.release()
+        
+        if not frames:
+            return None
+        
+        if overlap_mode == "continuous":
+            result_img = create_continuous_overlap_sequence(frames)
+        else:
+            result_img = create_overlapped_sequence(frames)
+        
+        if result_img is not None:
+            cv2.imwrite(output_path, result_img)
+            return output_path
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error creating swing sequence: {e}")
+        return None
+
+def create_detailed_phase_analysis_local(video_path: str, key_frames: Dict[str, int], 
+                                       output_path: str = "detailed_swing_phases.jpg") -> str:
+    """로컬 세분화 포즈 분석 생성 함수"""
+    try:
+        cap = cv2.VideoCapture(video_path)
+        
+        # 모든 세분화된 단계 정의
+        phases = [
+            ('address', '어드레스', (0, 255, 0)),
+            ('takeaway', '테이크어웨이', (255, 255, 0)),
+            ('backswing_start', '백스윙 시작', (255, 200, 0)),
+            ('backswing_mid', '백스윙 중간', (255, 150, 0)),
+            ('top', '탑', (255, 0, 0)),
+            ('transition', '트랜지션', (255, 0, 100)),
+            ('downswing_start', '다운스윙 시작', (255, 0, 200)),
+            ('downswing_mid', '다운스윙 중간', (200, 0, 255)),
+            ('impact', '임팩트', (100, 0, 255)),
+            ('follow_start', '팔로우 시작', (0, 100, 255)),
+            ('follow_mid', '팔로우 중간', (0, 200, 255)),
+            ('finish', '피니시', (0, 255, 255))
+        ]
+        
+        frames = []
+        
+        for phase_key, phase_name, color in phases:
+            frame_idx = key_frames.get(phase_key)
+            if frame_idx is not None:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                ret, frame = cap.read()
+                
+                if ret:
+                    # 프레임 크기 표준화
+                    target_height = 300
+                    aspect_ratio = frame.shape[1] / frame.shape[0]
+                    target_width = int(target_height * aspect_ratio)
+                    frame = cv2.resize(frame, (target_width, target_height))
+                    
+                    frames.append((phase_name, frame))
+        
+        cap.release()
+        
+        if not frames:
+            return None
+        
+        # 그리드 레이아웃으로 배치 (4x3)
+        rows = 3
+        cols = 4
+        
+        # 프레임 크기 통일
+        if frames:
+            max_height = max(frame.shape[0] for _, frame in frames)
+            max_width = max(frame.shape[1] for _, frame in frames)
+            
+            normalized_frames = []
+            for phase_name, frame in frames:
+                # 패딩 추가하여 크기 통일
+                padded = np.zeros((max_height, max_width, 3), dtype=np.uint8)
+                h, w = frame.shape[:2]
+                y_offset = (max_height - h) // 2
+                x_offset = (max_width - w) // 2
+                padded[y_offset:y_offset+h, x_offset:x_offset+w] = frame
+                
+                # 단계명 추가
+                cv2.putText(padded, phase_name, (10, 30), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                
+                normalized_frames.append(padded)
+            
+            # 빈 프레임으로 패딩
+            while len(normalized_frames) < rows * cols:
+                empty_frame = np.zeros((max_height, max_width, 3), dtype=np.uint8)
+                normalized_frames.append(empty_frame)
+            
+            # 그리드 생성
+            grid_rows = []
+            for i in range(rows):
+                row_frames = normalized_frames[i*cols:(i+1)*cols]
+                grid_row = np.hstack(row_frames)
+                grid_rows.append(grid_row)
+            
+            final_grid = np.vstack(grid_rows)
+            
+            # 제목 추가
+            title_height = 60
+            title_img = np.zeros((title_height, final_grid.shape[1], 3), dtype=np.uint8)
+            cv2.putText(title_img, "Detailed Swing Phase Analysis", 
+                       (final_grid.shape[1]//2 - 250, 35), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
+            
+            final_result = np.vstack([title_img, final_grid])
+            
+            # 이미지 저장
+            cv2.imwrite(output_path, final_result)
+            return output_path
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error creating detailed phase analysis: {e}")
+        return None
 
 if __name__ == "__main__":
     main() 

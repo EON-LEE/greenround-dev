@@ -1,31 +1,23 @@
-python-multipart==0.0.9
-python-jose==3.3.0
-python-dotenv==1.0.1
-matplotlib==3.8.3
-pillow==10.2.0
-rich>=10.14.0
-opencv-python-headless==4.9.0.80
-numpy==1.26.4
-streamlit==1.32.2
-<<<<<<< HEAD
-mediapipe==0.10.9
-=======
-mediapipe==0.10.9
-plotly==5.18.0
-pandas==2.2.1
-moviepy==1.0.3
-pytube==15.0.0
-torch==2.5.1
-timm
-open3d
-# pip install "git+https://github.com/facebookresearch/pytorch3d.git"
-# pip install kaolin==0.17.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.0.1_cu118.html
-seaborn
-transformers
-streamlit 
-opencv-python 
-mediapipe 
-transformers 
-torch 
+fastapi
+uvicorn[standard]
+python-multipart
+opencv-contrib-python==4.8.1.78
+mediapipe
+numpy
+scikit-learn
+pytube
 moviepy
->>>>>>> 8a1f375 (initial commit)
+pillow
+pydantic
+aiofiles
+gunicorn
+python-dotenv
+
+# 3D 및 시각화 관련 (Sequence, Highlight 기능에 필요)
+# torch, torchvision 제거됨 - 백엔드에서 사용하지 않음 (MediaPipe/OpenCV 사용)
+
+
+# GCP/Docker 배포에 필요한 라이브러리
+google-cloud-storage
+google-auth
+google-cloud-firestore>=2.13.0
