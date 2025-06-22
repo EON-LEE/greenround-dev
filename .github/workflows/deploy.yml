@@ -24,57 +24,65 @@ jobs:
     - name: 📥 Checkout code
       uses: actions/checkout@v4
     
-    # 2. .env 파일 파싱 및 환경 변수 설정
-    - name: 🔍 Parse .env file and set environment variables
+    # 2. GCP 인증 정보 파싱 및 환경 설정
+    - name: 🔍 Parse GCP credentials and setup environment
       run: |
-        if [ ! -f ".env" ]; then
-          echo "❌ ERROR: .env 파일을 찾을 수 없습니다!"
-          echo "프로젝트 루트에 .env 파일을 생성하세요."
+        echo "🔧 GCP 인증 정보 파싱 중..."
+        
+        # Secrets 검증
+        if [ -z "${{ secrets.GCP_CREDENTIALS }}" ]; then
+          echo "❌ ERROR: GCP_CREDENTIALS secret이 설정되지 않았습니다!"
+          echo "GitHub Repository → Settings → Secrets에서 GCP_CREDENTIALS를 설정하세요."
+          echo "gcs-credentials.json 파일의 전체 내용을 복사해서 넣으세요."
           exit 1
         fi
         
-        echo "📋 .env 파일 파싱 중..."
+        # GCP 서비스 계정 키 파일 생성
+        echo '${{ secrets.GCP_CREDENTIALS }}' > gcs-credentials.json
+        echo "✅ GCP 인증 파일 생성 완료"
         
-        # .env 파일에서 변수 로드
-        set -a  # 자동으로 export
-        source .env
-        set +a
+        # JSON에서 필요한 정보 추출
+        GCP_PROJECT_ID=$(cat gcs-credentials.json | python3 -c "import sys, json; print(json.load(sys.stdin)['project_id'])")
+        CLIENT_EMAIL=$(cat gcs-credentials.json | python3 -c "import sys, json; print(json.load(sys.stdin)['client_email'])")
         
         echo "🎯 프로젝트 ID: $GCP_PROJECT_ID"
-        echo "🌍 리전: $GCP_REGION"
-        echo "📦 서비스 이름: $GCP_SERVICE_NAME"
-        echo "🏷️ 저장소: $GCP_REPOSITORY"
-        echo "🔧 GPU 사용: $GCP_USE_GPU"
+        echo "📧 서비스 계정: $CLIENT_EMAIL"
+        echo "🌍 리전: ${{ env.GCP_REGION }}"
+        echo "📦 서비스 이름: ${{ env.GCP_SERVICE_NAME }}"
+        echo "🔧 GPU 사용: ${{ env.GCP_USE_GPU }}"
         
-        # GitHub Actions 환경 변수로 설정
+        # .env 파일 생성
+        cat > .env << EOF
+        GCP_PROJECT_ID=$GCP_PROJECT_ID
+        GCP_REGION=${{ env.GCP_REGION }}
+        GCP_SERVICE_NAME=${{ env.GCP_SERVICE_NAME }}
+        GCP_REPOSITORY=${{ env.GCP_REPOSITORY }}
+        GCP_USE_GPU=${{ env.GCP_USE_GPU }}
+        GCP_GPU_TYPE=${{ env.GCP_GPU_TYPE }}
+        GCP_GPU_COUNT=${{ env.GCP_GPU_COUNT }}
+        GOOGLE_APPLICATION_CREDENTIALS=./gcs-credentials.json
+        EOF
+        
+        echo "✅ 생성된 .env 파일:"
+        cat .env
+        
+        # 환경 변수 GitHub Actions로 설정
         echo "GCP_PROJECT_ID=$GCP_PROJECT_ID" >> $GITHUB_ENV
-        echo "GCP_REGION=$GCP_REGION" >> $GITHUB_ENV
-        echo "GCP_SERVICE_NAME=$GCP_SERVICE_NAME" >> $GITHUB_ENV
-        echo "GCP_REPOSITORY=$GCP_REPOSITORY" >> $GITHUB_ENV
-        echo "GCP_USE_GPU=$GCP_USE_GPU" >> $GITHUB_ENV
-        echo "GCP_GPU_TYPE=$GCP_GPU_TYPE" >> $GITHUB_ENV
-        echo "GCP_GPU_COUNT=$GCP_GPU_COUNT" >> $GITHUB_ENV
+        echo "CLIENT_EMAIL=$CLIENT_EMAIL" >> $GITHUB_ENV
+        echo "GCP_REGION=${{ env.GCP_REGION }}" >> $GITHUB_ENV
+        echo "GCP_SERVICE_NAME=${{ env.GCP_SERVICE_NAME }}" >> $GITHUB_ENV
+        echo "GCP_REPOSITORY=${{ env.GCP_REPOSITORY }}" >> $GITHUB_ENV
+        echo "GCP_USE_GPU=${{ env.GCP_USE_GPU }}" >> $GITHUB_ENV
+        echo "GCP_GPU_TYPE=${{ env.GCP_GPU_TYPE }}" >> $GITHUB_ENV
+        echo "GCP_GPU_COUNT=${{ env.GCP_GPU_COUNT }}" >> $GITHUB_ENV
         
-        echo "✅ 환경 변수 설정 완료"
+        echo "✅ 환경 변수 및 인증 파일 설정 완료"
     
-    # 3. GCP 인증 (JSON 파일과 .env 파일 모두 지원)
+    # 3. GCP 인증
     - name: 🔐 Authenticate to Google Cloud
-      run: |
-        if [ -f "gcs-credentials.json" ]; then
-          echo "🔑 JSON 파일로 GCP 인증 중..."
-          gcloud auth activate-service-account --key-file=gcs-credentials.json
-          gcloud config set project $GCP_PROJECT_ID
-        elif [ ! -z "$GOOGLE_APPLICATION_CREDENTIALS" ] && [ -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-          echo "🔑 GOOGLE_APPLICATION_CREDENTIALS로 GCP 인증 중..."
-          gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
-          gcloud config set project $GCP_PROJECT_ID
-        else
-          echo "❌ ERROR: GCP 인증 파일을 찾을 수 없습니다!"
-          echo "gcs-credentials.json 파일이나 GOOGLE_APPLICATION_CREDENTIALS를 설정하세요."
-          exit 1
-        fi
-        
-        echo "✅ GCP 인증 완료"
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
     
     # 4. Cloud SDK 설치
     - name: ☁️ Set up Cloud SDK
