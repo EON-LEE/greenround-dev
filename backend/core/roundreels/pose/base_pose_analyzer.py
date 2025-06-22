@@ -32,13 +32,14 @@ class BasePoseAnalyzer:
         except Exception as e:
             logger.warning(f"OpenCV 최적화 설정 실패: {e}")
         
-        # MediaPipe Pose 모델 초기화
+        # MediaPipe Pose 모델 초기화 - GPU 최적화 최고 정밀도 설정
         model_start = time.time()
         self.pose = self.mp_pose.Pose(
             static_image_mode=False, 
-            model_complexity=0,  # 최고 성능을 위해 0 사용
-            min_detection_confidence=0.5, 
-            min_tracking_confidence=0.5)
+            model_complexity=2,  # GPU 환경에서 최고 정밀도 모델 사용 (0->2)
+            min_detection_confidence=0.7,  # 높은 신뢰도 요구 (0.3->0.7)
+            min_tracking_confidence=0.5,   # 안정적인 추적 (0.3->0.5)
+            enable_segmentation=True)       # 세그멘테이션 활성화로 더 정확한 포즈 감지
         model_time = time.time() - model_start
         
         self.main_joints = [
@@ -154,12 +155,18 @@ class BasePoseAnalyzer:
                 motion_data[i] = total_dist / num_joints
         return motion_data
     
-    def _smooth_motion_data(self, motion_data: List[float], window_size: int = 5) -> List[float]:
-        """간단한 이동 평균으로 움직임 데이터를 부드럽게 만듭니다."""
+    def _smooth_motion_data(self, motion_data: List[float], window_size: int = 9) -> List[float]:
+        """간단한 이동 평균으로 움직임 데이터를 부드럽게 만듭니다. GPU 환경에서 더 정밀한 스무딩."""
         if len(motion_data) < window_size:
             return motion_data
         
-        smoothed = np.convolve(motion_data, np.ones(window_size)/window_size, mode='same')
+        # 가우시안 가중 스무딩으로 업그레이드 (더 정밀한 분석)
+        sigma = window_size / 3.0
+        x = np.arange(window_size) - window_size // 2
+        weights = np.exp(-(x**2) / (2 * sigma**2))
+        weights = weights / np.sum(weights)
+        
+        smoothed = np.convolve(motion_data, weights, mode='same')
         return smoothed.tolist()
 
     def _detect_key_events(self, frames_data: list, start_frame: int, end_frame: int) -> dict:
