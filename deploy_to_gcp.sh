@@ -45,6 +45,7 @@ load_env_file() {
         log_info ".env 파일에서 환경 변수 로드 중..."
         export $(grep -v '^#' .env | xargs)
         log_success ".env 파일 로드 완료"
+        cat .env
     else
         log_warning ".env 파일을 찾을 수 없습니다. 기본값을 사용합니다."
     fi

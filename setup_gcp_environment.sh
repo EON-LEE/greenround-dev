@@ -213,10 +213,16 @@ create_service_account() {
     # 권한 부여
     log_info "서비스 계정에 권한 부여 중..."
     roles=(
-        "roles/storage.admin"
-        "roles/run.developer"
-        "roles/artifactregistry.writer"
-        "roles/datastore.user"
+        "roles/storage.admin"                    # GCS 버킷 관리
+        "roles/run.admin"                        # Cloud Run 서비스 관리 (developer → admin으로 변경)
+        "roles/artifactregistry.admin"           # Artifact Registry 관리 (writer → admin으로 변경)
+        "roles/datastore.user"                   # Firestore 데이터베이스 사용
+        "roles/serviceusage.serviceUsageAdmin"   # API 활성화 권한 (중요!)
+        "roles/compute.admin"                    # Compute Engine 리소스 관리
+        "roles/cloudbuild.builds.editor"         # Cloud Build 관리
+        "roles/iam.serviceAccountUser"           # 서비스 계정 사용 권한
+        "roles/logging.logWriter"                # 로그 작성 권한
+        "roles/monitoring.metricWriter"          # 모니터링 메트릭 작성
     )
     
     for role in "${roles[@]}"; do
