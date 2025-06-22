@@ -245,7 +245,7 @@ deploy_service() {
         --allow-unauthenticated \
         --port=8000 \
         --memory=16Gi \
-        --cpu=2 \
+        --cpu=4 \
         $DEPLOY_ARGS \
         --max-instances=3 \
         --timeout=3600 \
