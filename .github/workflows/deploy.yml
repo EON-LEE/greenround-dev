@@ -5,7 +5,7 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # 수동 실행 가능
+  workflow_dispatch:  # 수동 실행 가능å
 
 env:
   GCP_REGION: asia-northeast3
@@ -24,66 +24,67 @@ jobs:
     - name: 📥 Checkout code
       uses: actions/checkout@v4
     
-    # 2. GCP 서비스 계정 파일 파싱 및 인증
-    - name: 🔍 Parse GCP credentials and extract project ID
+    # 2. .env 파일 파싱 및 환경 변수 설정
+    - name: 🔍 Parse .env file and set environment variables
       run: |
-        if [ ! -f "gcs-credentials.json" ]; then
-          echo "❌ ERROR: gcs-credentials.json 파일을 찾을 수 없습니다!"
+        if [ ! -f ".env" ]; then
+          echo "❌ ERROR: .env 파일을 찾을 수 없습니다!"
+          echo "프로젝트 루트에 .env 파일을 생성하세요."
           exit 1
         fi
         
-        echo "📋 GCP 인증 정보 파싱 중..."
+        echo "📋 .env 파일 파싱 중..."
         
-        # JSON에서 project_id 추출
-        GCP_PROJECT_ID=$(cat gcs-credentials.json | python3 -c "import sys, json; print(json.load(sys.stdin)['project_id'])")
+        # .env 파일에서 변수 로드
+        set -a  # 자동으로 export
+        source .env
+        set +a
+        
         echo "🎯 프로젝트 ID: $GCP_PROJECT_ID"
+        echo "🌍 리전: $GCP_REGION"
+        echo "📦 서비스 이름: $GCP_SERVICE_NAME"
+        echo "🏷️ 저장소: $GCP_REPOSITORY"
+        echo "🔧 GPU 사용: $GCP_USE_GPU"
         
-        # JSON에서 client_email 추출 (확인용)
-        CLIENT_EMAIL=$(cat gcs-credentials.json | python3 -c "import sys, json; print(json.load(sys.stdin)['client_email'])")
-        echo "📧 서비스 계정: $CLIENT_EMAIL"
-        
-        # 환경 변수로 설정 (다음 스텝에서 사용)
+        # GitHub Actions 환경 변수로 설정
         echo "GCP_PROJECT_ID=$GCP_PROJECT_ID" >> $GITHUB_ENV
-        echo "CLIENT_EMAIL=$CLIENT_EMAIL" >> $GITHUB_ENV
-        echo "GCP_REGION=${{ env.GCP_REGION }}" >> $GITHUB_ENV
-        echo "GCP_SERVICE_NAME=${{ env.GCP_SERVICE_NAME }}" >> $GITHUB_ENV
-        echo "GCP_REPOSITORY=${{ env.GCP_REPOSITORY }}" >> $GITHUB_ENV
-        echo "GCP_USE_GPU=${{ env.GCP_USE_GPU }}" >> $GITHUB_ENV
-        echo "GCP_GPU_TYPE=${{ env.GCP_GPU_TYPE }}" >> $GITHUB_ENV
-        echo "GCP_GPU_COUNT=${{ env.GCP_GPU_COUNT }}" >> $GITHUB_ENV
+        echo "GCP_REGION=$GCP_REGION" >> $GITHUB_ENV
+        echo "GCP_SERVICE_NAME=$GCP_SERVICE_NAME" >> $GITHUB_ENV
+        echo "GCP_REPOSITORY=$GCP_REPOSITORY" >> $GITHUB_ENV
+        echo "GCP_USE_GPU=$GCP_USE_GPU" >> $GITHUB_ENV
+        echo "GCP_GPU_TYPE=$GCP_GPU_TYPE" >> $GITHUB_ENV
+        echo "GCP_GPU_COUNT=$GCP_GPU_COUNT" >> $GITHUB_ENV
         
-        echo "✅ 인증 정보 파싱 완료"
+        echo "✅ 환경 변수 설정 완료"
     
+    # 3. GCP 인증 (JSON 파일과 .env 파일 모두 지원)
     - name: 🔐 Authenticate to Google Cloud
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ github.workspace }}/gcs-credentials.json
+      run: |
+        if [ -f "gcs-credentials.json" ]; then
+          echo "🔑 JSON 파일로 GCP 인증 중..."
+          gcloud auth activate-service-account --key-file=gcs-credentials.json
+          gcloud config set project $GCP_PROJECT_ID
+        elif [ ! -z "$GOOGLE_APPLICATION_CREDENTIALS" ] && [ -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+          echo "🔑 GOOGLE_APPLICATION_CREDENTIALS로 GCP 인증 중..."
+          gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
+          gcloud config set project $GCP_PROJECT_ID
+        else
+          echo "❌ ERROR: GCP 인증 파일을 찾을 수 없습니다!"
+          echo "gcs-credentials.json 파일이나 GOOGLE_APPLICATION_CREDENTIALS를 설정하세요."
+          exit 1
+        fi
+        
+        echo "✅ GCP 인증 완료"
     
-    # 3. Cloud SDK 설치
+    # 4. Cloud SDK 설치
     - name: ☁️ Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
       with:
         version: 'latest'
     
-    # 4. Docker Buildx 설정
+    # 5. Docker Buildx 설정
     - name: 🐳 Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-    
-    # 5. 환경 변수를 .env 파일로 생성
-    - name: 📝 Create .env file
-      run: |
-        echo "🔧 환경 변수 파일 생성 중..."
-        cat > .env << EOF
-        GCP_PROJECT_ID=${GCP_PROJECT_ID}
-        GCP_REGION=${GCP_REGION}
-        GCP_SERVICE_NAME=${GCP_SERVICE_NAME}
-        GCP_REPOSITORY=${GCP_REPOSITORY}
-        GCP_USE_GPU=${GCP_USE_GPU}
-        GCP_GPU_TYPE=${GCP_GPU_TYPE}
-        GCP_GPU_COUNT=${GCP_GPU_COUNT}
-        EOF
-        echo "✅ 생성된 .env 파일:"
-        cat .env
     
     # 6. 배포 스크립트 실행 권한 부여
     - name: 🔑 Make deploy script executable
