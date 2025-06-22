@@ -36,9 +36,9 @@ class BasePoseAnalyzer:
         model_start = time.time()
         self.pose = self.mp_pose.Pose(
             static_image_mode=False, 
-            model_complexity=2,  # GPU 환경에서 최고 정밀도 모델 사용 (0->2)
-            min_detection_confidence=0.7,  # 높은 신뢰도 요구 (0.3->0.7)
-            min_tracking_confidence=0.5,   # 안정적인 추적 (0.3->0.5)
+            model_complexity=1,  # GPU 환경에서 최고 정밀도 모델 사용 (0->2)
+            min_detection_confidence=0.3,  # 높은 신뢰도 요구 (0.3->0.7)
+            min_tracking_confidence=0.3,   # 안정적인 추적 (0.3->0.5)
             enable_segmentation=True)       # 세그멘테이션 활성화로 더 정확한 포즈 감지
         model_time = time.time() - model_start
         
