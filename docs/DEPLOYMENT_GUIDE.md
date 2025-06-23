@@ -1,184 +1,106 @@
-# Golf 3D Analyzer - Google Cloud 배포 가이드 🚀
+# Greenround - GitHub Actions 자동 배포 가이드 🚀
 
 ## 📋 목차
-1. [빠른 시작 (5분 완성)](#빠른-시작-5분-완성)
-2. [환경 설정 (최초 1회만)](#환경-설정-최초-1회만)
-3. [배포 스크립트 사용법](#배포-스크립트-사용법)
-4. [문제 해결](#문제-해결)
-5. [모니터링 및 관리](#모니터링-및-관리)
+1. [자동 배포 개요](#-1-자동-배포-개요)
+2. [GitHub Secrets 설정 (최초 1회)](#-2-github-secrets-설정-최초-1회)
+3. [CI/CD 파이프라인 상세 분석](#-3-cicd-파이프라인-상세-분석)
+4. [모니터링 및 문제 해결](#-4-모니터링-및-문제-해결)
 
 ---
 
-## 🚀 빠른 시작 (5분 완성)
+## 🚀 1. 자동 배포 개요
 
-> **이미 GCP 환경이 설정된 경우 바로 배포하세요!**
+### 동작 방식
+이 프로젝트는 `main` 브랜치에 코드를 `push`하면 GitHub Actions가 자동으로 Google Cloud Run에 배포하는 CI/CD 파이프라인을 사용합니다.
 
-### 1단계: 사전 확인 ✅
-```bash
-# 필수 도구 설치 확인
-docker --version
-gcloud --version
-
-# Google Cloud 로그인 확인
-gcloud auth list
+### 핵심 흐름도
+```mermaid
+graph TD
+    A[💻 로컬: 코드 수정] -- git push origin main --> B[🤖 GitHub Actions];
+    B -- 실행 --> C[📜 deploy_to_gcp.sh];
+    C -- 1. Docker 빌드 --> D[📦 Docker 이미지];
+    D -- 2. 이미지 푸시 --> E[☁️ Artifact Registry];
+    E -- 3. 서비스 배포 --> F[🚀 Google Cloud Run];
 ```
 
-### 2단계: 배포 실행 🚀
-```bash
-# 배포 스크립트 실행 권한 부여
-chmod +x deploy_to_gcp.sh
-
-# 전체 배포 (빌드 + 배포)
-./deploy_to_gcp.sh
-```
-
-### 3단계: 확인 ✨
-```bash
-# 배포 상태 확인
-./deploy_to_gcp.sh --status
-```
-
-**완료!** 🎉 약 3-5분 후 API가 Google Cloud Run에서 실행됩니다.
+**핵심**: 개발자는 코드를 `push`하기만 하면, GitHub Actions가 `deploy_to_gcp.sh` 스크립트를 실행하여 모든 배포 과정을 자동으로 처리합니다.
 
 ---
 
-## ⚙️ 환경 설정 (최초 1회만)
+## ⚙️ 2. GitHub Secrets 설정 (최초 1회)
 
-> **이미 GCP 콘솔에서 설정했다면 이 섹션은 건너뛰세요!**
+자동 배포를 위해 GitHub 저장소에 GCP 인증 정보 및 프로젝트 설정을 안전하게 저장해야 합니다.
 
-### 옵션 1: 자동 설정 스크립트 (권장)
-```bash
-# 환경 설정 스크립트 실행
-chmod +x setup_gcp_environment.sh
-./setup_gcp_environment.sh
-```
+**📍 위치**: GitHub 저장소 → `Settings` → `Secrets and variables` → `Actions` → `New repository secret`
 
-**스크립트가 자동으로 생성하는 것들:**
-- 필수 API 활성화 (Artifact Registry, Cloud Run, Storage 등)
-- 서비스 계정 `golf-analyzer-sa` 생성 및 권한 부여
-- Artifact Registry 저장소 생성
-- GCS 버킷 생성
-- 환경 변수 파일 `.env` 생성
-- 서비스 계정 키 `gcs-credentials.json` 생성
+### 필수 Secrets 목록
 
-### 옵션 2: 수동 설정 (이미 콘솔에서 설정한 경우)
+| Secret 이름          | 값 (Value)                                      | 설명                                     |
+|----------------------|-------------------------------------------------|------------------------------------------|
+| `GCP_SA_KEY`         | `gcs-credentials.json` 파일의 **전체 내용**     | GCP 서비스 계정 인증 키 (JSON 형식)        |
 
-#### 2-1. 필수 API 활성화 확인
-```bash
-gcloud services list --enabled --filter="name:(artifactregistry.googleapis.com OR run.googleapis.com OR cloudbuild.googleapis.com OR storage.googleapis.com)"
-```
-
-#### 2-2. 환경 변수 파일 생성
-`.env` 파일을 생성하고 프로젝트 정보를 입력:
-```bash
-# Google Cloud 설정
-GCP_PROJECT_ID=your-project-id
-GCP_REGION=asia-northeast3
-GCP_SERVICE_NAME=golf-analyzer-backend
-GCP_REPOSITORY=golf-analyzer
-GCS_BUCKET_NAME=your-bucket-name
-GOOGLE_APPLICATION_CREDENTIALS=gcs-credentials.json
-
-# 애플리케이션 설정
-ENVIRONMENT=production
-```
-
-#### 2-3. 서비스 계정 키 다운로드
-Google Cloud Console에서 서비스 계정 키를 다운로드하여 `gcs-credentials.json`으로 저장
 
 ---
 
-## 📜 배포 스크립트 사용법
+### 🔑 `GCP_SA_KEY` Secret 설정 가이드
 
-### 기본 배포 명령어
-```bash
-# 전체 배포 (빌드 + 배포)
-./deploy_to_gcp.sh
+`GCP_SA_KEY`는 가장 중요한 보안 정보입니다.
 
-# 특정 버전으로 배포
-./deploy_to_gcp.sh v1.2.0
+1.  **`gcs-credentials.json` 파일 얻기**
+    -   이 파일은 최초 환경 설정 시 `setup_gcp_environment.sh` 스크립트를 실행하면 프로젝트 루트에 **단 한 번 생성**됩니다.
+    -   이 스크립트는 프로젝트에 필요한 모든 GCP 리소스(서비스 계정 포함)를 설정합니다.
 
-# 빌드만 수행
-./deploy_to_gcp.sh --build-only
+2.  **Secret 값 복사 및 붙여넣기**
+    -   `gcs-credentials.json` 파일을 열어 **`{` 부터 `}` 까지 모든 내용을 복사**합니다.
+    -   GitHub `GCP_SA_KEY` Secret 값으로 붙여넣습니다.
 
-# 기존 이미지로 재배포만
-./deploy_to_gcp.sh --deploy-only
-```
-
-### 모니터링 명령어
-```bash
-# 서비스 상태 확인
-./deploy_to_gcp.sh --status
-
-# 실시간 로그 보기
-./deploy_to_gcp.sh --logs
-
-# 환경 설정 확인
-./deploy_to_gcp.sh --check
-
-# 초기 설정 수행
-./deploy_to_gcp.sh --setup
-```
-
-### 배포 과정 상세
-1. **Docker 인증 설정**: Artifact Registry 접근 권한 설정
-2. **이미지 빌드**: Linux/AMD64 플랫폼으로 크로스 빌드
-3. **이미지 푸시**: Artifact Registry에 업로드
-4. **Cloud Run 배포**: 서비스 생성/업데이트
-5. **상태 확인**: API 응답 테스트
+**⚠️ 중요**: `gcs-credentials.json` 파일은 Git에 절대 커밋하면 안 됩니다. `.gitignore`에 포함되어 있는지 항상 확인하세요.
 
 ---
 
-## 🔍 문제 해결
+## 🔄 3. CI/CD 파이프라인 상세 분석
 
-### 자주 발생하는 오류들
+### 📜 GitHub Actions 워크플로우 (`.github/workflows/deploy.yml`)
 
-#### 1. OpenCV 설치 오류
-```bash
-# 해결 방법
-pip uninstall opencv-python opencv-contrib-python opencv-python-headless -y
-pip install opencv-contrib-python==4.8.1.78
-```
+-   **역할**: `main` 브랜치에 `push` 이벤트가 발생하면, GCP 환경을 설정하고 `deploy_to_gcp.sh` 스크립트를 실행합니다.
+-   **트리거**: `on: push: branches: [ main ]`
+-   **주요 단계**:
+    1.  **코드 체크아웃**: 최신 코드를 가져옵니다.
+    2.  **GCP 인증**: `secrets.GCP_SA_KEY`를 사용하여 GCP에 인증합니다.
+    3.  **`deploy_to_gcp.sh` 실행**: 배포 스크립트에 실행 권한을 주고 실행합니다.
+        ```yaml
+        - name: Deploy to Google Cloud Run
+          run: |
+            chmod +x deploy_to_gcp.sh
+            ./deploy_to_gcp.sh
+        ```
 
-#### 2. Docker 인증 오류
-```bash
-# Docker 설정 초기화
-rm ~/.docker/config.json
-gcloud auth configure-docker asia-northeast3-docker.pkg.dev
-```
+### 📜 배포 스크립트 (`deploy_to_gcp.sh`)
 
-#### 3. GCS 인증 오류 (로컬 환경)
-```bash
-# 서비스 계정 키 설정
-export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/gcs-credentials.json"
+GitHub Actions Runner 환경에서 실행되며, 실제 배포 작업을 수행합니다.
 
-# 또는 Application Default Credentials 설정
-gcloud auth application-default login
-```
+-   **역할**: Docker 이미지를 빌드하고, Artifact Registry에 푸시한 후, Cloud Run에 배포합니다.
+-   **단계별 주요 명령어**:
+    1.  **환경변수 로드**: `.env` 파일에서 GCP 설정값을 읽어옵니다.
+    2.  **Docker 인증**: `gcloud auth configure-docker` 명령어로 Artifact Registry에 접근 권한을 설정합니다.
+    3.  **이미지 빌드**: `docker build` 명령어로 `Dockerfile`을 기반으로 애플리케이션 이미지를 생성합니다.
+    4.  **이미지 푸시**: `docker push` 명령어로 생성된 이미지를 Artifact Registry 저장소에 업로드합니다.
+    5.  **Cloud Run 배포**: `gcloud run deploy` 명령어로 새 이미지를 사용하여 Cloud Run 서비스를 업데이트합니다. GPU, 메모리, 타임아웃 등 서비스 설정이 이 단계에서 적용됩니다.
 
-#### 4. 메모리 부족 오류
-```bash
-# Cloud Run 메모리 증설
-gcloud run services update golf-analyzer-backend \
-    --region=asia-northeast3 \
-    --memory=4Gi \
-    --cpu=2
-```
+---
 
-#### 5. 아키텍처 호환성 문제 (M1/M2 Mac)
-```bash
-# Docker Buildx 설정
-docker buildx create --use --name multiarch
-docker buildx build --platform linux/amd64 --push -t IMAGE_NAME .
-```
+## 🔍 4. 모니터링 및 문제 해결
 
-### 배포 실패 시 체크리스트
-- [ ] Google Cloud CLI 로그인 상태 확인
-- [ ] Docker Desktop 실행 상태 확인
-- [ ] 프로젝트 ID 정확성 확인
-- [ ] 필수 API 활성화 상태 확인
-- [ ] 서비스 계정 권한 확인
-- [ ] `.env` 파일 존재 및 내용 확인
+### 로그 확인 방법
+-   **GitHub Actions 로그**: 배포 실패의 **1차 원인**을 파악할 수 있습니다. (인증 실패, 빌드 오류 등)
+    -   **위치**: GitHub 저장소 → `Actions` → 해당 워크플로우 실행 기록
+-   **Cloud Run 로그**: 애플리케이션 실행 오류를 확인할 수 있습니다.
+    -   **위치**: Google Cloud Console → `Cloud Run` → 해당 서비스 → `LOGS` 탭
+
+### 자주 발생하는 오류
+-   **`permission denied` 오류 (GitHub Actions)**: `GCP_SA_KEY`에 저장된 서비스 계정의 권한이 부족한 경우입니다. `setup_gcp_environment.sh`의 권한 설정을 확인하세요.
+-   **`ModuleNotFoundError` (Cloud Run 로그)**: `requirements.txt`에 패키지가 누락되었거나, Docker 빌드 과정에서 설치가 실패한 경우입니다.
+-   **`invalid authentication credentials` (GitHub Actions)**: `GCP_SA_KEY` Secret 값이 잘못되었을 가능성이 높습니다. JSON 전체가 올바르게 복사되었는지 확인하세요.
 
 ---
 
