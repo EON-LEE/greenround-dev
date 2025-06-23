@@ -5,7 +5,7 @@ import threading
 import logging
 
 # 라우터들
-from routers import common, roundreels
+from routers import common, swingclip
 from core.common.utils import cleanup_temp_files, cleanup_old_files
 
 # 로깅 설정
@@ -63,7 +63,7 @@ app = FastAPI(
     - **결과 다운로드**: GCS 기반 파일 다운로드 및 스트리밍
     - **시스템 정보**: API 상태 및 서비스 정보 확인
     
-    #### 🏌️ RoundReels 서비스
+    #### 🏌️ SwingClip 서비스
     - **하이라이트 영상**: 3단계 슬로우모션 하이라이트 생성
     - **스윙 시퀀스**: 7단계 스윙 분석 이미지 합성
     - **볼 트래킹**: 골프공 궤적 추적 및 시각화
@@ -101,7 +101,7 @@ app.add_middleware(
 
 # 라우터 등록
 app.include_router(common.router, tags=["📤 Common"])
-app.include_router(roundreels.router, tags=["🏌️ RoundReels"])
+app.include_router(swingclip.router, tags=["🏌️ SwingClip"])
 
 # 루트 엔드포인트
 @app.get("/", tags=["🏠 Root"])
@@ -118,13 +118,13 @@ async def root():
                 "description": "파일 업로드, 상태 조회, 다운로드 등 공통 기능",
                 "endpoints": ["/api/upload", "/api/status", "/api/health", "/api/info"]
             },
-            "roundreels": {
+            "swingclip": {
                 "description": "골프 스윙 분석 및 영상 생성 서비스",
                 "endpoints": [
-                    "/api/roundreels/highlight-video",
-                    "/api/roundreels/swing-sequence", 
-                    "/api/roundreels/ball-tracking",
-                    "/api/roundreels/ball-analysis"
+                    "/api/swingclip/highlight-video",
+                    "/api/swingclip/swing-sequence", 
+                    "/api/swingclip/ball-tracking",
+                    "/api/swingclip/ball-analysis"
                 ]
             },
             "scorecard": {
@@ -139,8 +139,8 @@ async def root():
         "links": {
             "health_check": "/api/health",
             "system_info": "/api/info",
-            "roundreels_health": "/api/roundreels/health",
-            "roundreels_info": "/api/roundreels/info"
+            "swingclip_health": "/api/swingclip/health",
+            "swingclip_info": "/api/swingclip/info"
         }
     }
 

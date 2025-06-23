@@ -13,17 +13,17 @@ from models.schemas import (
 from core.common.utils import (
     generate_task_id, get_file_path, update_task_status, generate_predictable_urls
 )
-from core.roundreels.highlight_engine import HighlightEngine
-from core.roundreels.sequence_composer import SequenceComposer
-from core.roundreels.ball_tracking_engine import BallTrackingEngine
-from core.roundreels.pose.sequence_pose_analyzer import SequencePoseAnalyzer
+from core.swingclip.highlight_engine import HighlightEngine
+from core.swingclip.sequence_composer import SequenceComposer
+from core.swingclip.ball_tracking_engine import BallTrackingEngine
+from core.swingclip.pose.sequence_pose_analyzer import SequencePoseAnalyzer
 
 logger = logging.getLogger(__name__)
 
-# RoundReels 서비스 라우터 생성
+# SwingClip 서비스 라우터 생성
 router = APIRouter(
-    prefix="/api/roundreels",
-    tags=["roundreels"],
+    prefix="/api/swingclip",
+    tags=["swingclip"],
     responses={404: {"model": ErrorResponse}},
 )
 
@@ -199,16 +199,16 @@ async def create_ball_analysis(request: BallAnalysisRequest, background_tasks: B
         logger.error(f"볼 분석 실패: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"볼 분석 실패: {str(e)}")
 
-# 5. RoundReels 서비스 상태 확인
+# 5. SwingClip 서비스 상태 확인
 @router.get("/health")
-async def roundreels_health_check():
-    """RoundReels 서비스 상태 확인"""
+async def swingclip_health_check():
+    """SwingClip 서비스 상태 확인"""
     try:
         highlight_engine = get_highlight_engine()
         sequence_analyzer = get_sequence_analyzer()
         
         return {
-            "service": "roundreels",
+            "service": "swingclip",
             "status": "healthy",
             "version": "2.0.0",
             "features": {
@@ -224,43 +224,43 @@ async def roundreels_health_check():
             }
         }
     except Exception as e:
-        logger.error(f"RoundReels 헬스체크 실패: {str(e)}", exc_info=True)
+        logger.error(f"SwingClip 헬스체크 실패: {str(e)}", exc_info=True)
         return {
-            "service": "roundreels",
+            "service": "swingclip",
             "status": "unhealthy",
             "error": str(e)
         }
 
-# 6. RoundReels 서비스 정보
+# 6. SwingClip 서비스 정보
 @router.get("/info")
-async def roundreels_info():
-    """RoundReels 서비스 정보"""
+async def swingclip_info():
+    """SwingClip 서비스 정보"""
     return {
-        "service": "roundreels",
+        "service": "swingclip",
         "version": "2.0.0",
         "description": "Golf swing analysis service with highlight generation, sequence composition, and ball tracking",
         "features": {
             "highlight_video": {
                 "description": "Generate highlight videos with slow motion effects",
-                "endpoint": "/api/roundreels/highlight-video",
+                "endpoint": "/api/swingclip/highlight-video",
                 "estimated_time": "30 seconds",
                 "parameters": ["file_id", "total_duration", "slow_factor"]
             },
             "swing_sequence": {
                 "description": "Create 7-step swing sequence images",
-                "endpoint": "/api/roundreels/swing-sequence", 
+                "endpoint": "/api/swingclip/swing-sequence", 
                 "estimated_time": "20 seconds",
                 "parameters": ["file_id"]
             },
             "ball_tracking": {
                 "description": "Track golf ball with trajectory visualization",
-                "endpoint": "/api/roundreels/ball-tracking",
+                "endpoint": "/api/swingclip/ball-tracking",
                 "estimated_time": "45 seconds",
                 "parameters": ["file_id", "show_trajectory", "show_speed", "show_distance"]
             },
             "ball_analysis": {
                 "description": "Analyze ball data without video generation",
-                "endpoint": "/api/roundreels/ball-analysis",
+                "endpoint": "/api/swingclip/ball-analysis",
                 "estimated_time": "60 seconds",
                 "parameters": ["file_id", "analysis_type"]
             }

@@ -203,7 +203,7 @@ def main():
     apis = [
         {
             "name": "하이라이트 비디오",
-            "endpoint": "/api/roundreels/highlight-video",
+            "endpoint": "/api/swingclip/highlight-video",
             "payload": {
                 "file_id": file_id,
                 "total_duration": 15,
@@ -212,7 +212,7 @@ def main():
         },
         {
             "name": "스윙 시퀀스",
-            "endpoint": "/api/roundreels/swing-sequence",
+            "endpoint": "/api/swingclip/swing-sequence",
             "payload": {
                 "file_id": file_id
             }

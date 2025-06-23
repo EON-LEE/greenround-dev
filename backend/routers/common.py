@@ -116,7 +116,7 @@ async def system_info():
             "ball_tracks": len(list(BALL_TRACKS_DIR.glob("*")))
         },
         "services": {
-            "roundreels": {
+            "swingclip": {
                 "highlight_video": True,
                 "swing_sequence": True,
                 "ball_tracking": True,
