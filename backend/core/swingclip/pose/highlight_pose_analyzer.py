@@ -55,7 +55,10 @@ class HighlightPoseAnalyzer(BasePoseAnalyzer):
                     progress = int((i / total_frames) * 100)
                     progress_callback(progress)
                 
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # 프레임 크기 고정 (MediaPipe 오류 방지)
+                resized_frame = cv2.resize(frame, (width, height))
+                
+                rgb_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
                 results = self.pose.process(rgb_frame)
                 
                 current_pose_landmarks = self._extract_landmarks(results)

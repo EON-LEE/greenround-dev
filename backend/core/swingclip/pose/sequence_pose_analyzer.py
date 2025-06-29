@@ -41,8 +41,11 @@ class SequencePoseAnalyzer(BasePoseAnalyzer):
             prev_pose_landmarks = None
             
             for i, frame in enumerate(frames):
+                # 프레임 크기 고정 (MediaPipe 오류 방지)
+                resized_frame = cv2.resize(frame, (width, height))
+                
                 # MediaPipe 처리
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                rgb_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
                 results = self.pose.process(rgb_frame)
                 
                 # 랜드마크 추출
@@ -62,7 +65,7 @@ class SequencePoseAnalyzer(BasePoseAnalyzer):
                 
                 # 시퀀스 생성시 프레임 저장 필요
                 if store_frames:
-                    frame_data['frame'] = frame  # 'original_frame' 대신 'frame' 사용
+                    frame_data['frame'] = resized_frame  # 크기 조절된 프레임 저장
                     
                 frames_data.append(frame_data)
                 prev_pose_landmarks = current_pose_landmarks

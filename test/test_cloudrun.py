@@ -15,7 +15,8 @@ from dotenv import load_dotenv
 
 # 설정
 SERVICE_URL = "https://greenround-backend-02db099e-743523817089.europe-west1.run.app"
-VIDEO_FILE = "/Users/eonlee/Documents/Projects/golf-3d-analyzer/test/KakaoTalk_Video_2025-05-31-20-46-31.mp4"
+# VIDEO_FILE = "/Users/eonlee/Documents/Projects/golf-3d-analyzer/test/KakaoTalk_Video_2025-05-31-20-46-31.mp4"
+VIDEO_FILE = "/Users/eonlee/Documents/Projects/golf-3d-analyzer/test/output_video_bMVf3lKrUlo.mp4"
 
 def test_health():
     """헬스 체크 테스트"""
