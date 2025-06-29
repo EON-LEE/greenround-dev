@@ -27,13 +27,13 @@ async def lifespan(app: FastAPI):
     cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
     cleanup_thread.start()
     
-    logger.info("✅ Golf 3D Analyzer API 시작 완료!")
+    logger.info("✅ Greenround Backend API 시작 완료!")
     yield
     
     # 종료 시 정리 작업
-    logger.info("🛑 Golf 3D Analyzer API 종료 중...")
+    logger.info("🛑 Greenround Backend API 종료 중...")
     cleanup_temp_files()
-    logger.info("✅ Golf 3D Analyzer API 종료 완료!")
+    logger.info("✅ Greenround Backend API 종료 완료!")
 
 def periodic_cleanup():
     """주기적인 파일 정리"""
@@ -49,9 +49,9 @@ def periodic_cleanup():
 
 # FastAPI 앱 생성
 app = FastAPI(
-    title="Golf 3D Analyzer API",
+    title="Greenround Backend API",
     description="""
-    ## 🏌️ Golf 3D Analyzer - Microservice Architecture v2.0
+    ## 🏌️ Greenround Backend - Microservice Architecture v2.0
     
     골프 스윙 분석을 위한 마이크로서비스 API입니다.
     
@@ -108,11 +108,11 @@ app.include_router(swingclip.router, tags=["🏌️ SwingClip"])
 async def root():
     """API 루트 - 서비스 개요"""
     return {
-        "service": "Golf 3D Analyzer API",
+        "service": "Greenround Backend API",
         "version": "2.0.0",
         "architecture": "microservice",
         "status": "healthy",
-        "message": "🏌️ Welcome to Golf 3D Analyzer API v2.0!",
+        "message": "🏌️ Welcome to Greenround Backend API v2.0!",
         "services": {
             "common": {
                 "description": "파일 업로드, 상태 조회, 다운로드 등 공통 기능",
